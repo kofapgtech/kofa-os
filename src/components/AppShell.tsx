@@ -92,7 +92,9 @@ export function AppShell() {
         </div>
       </header>
 
-      <div className="mx-auto flex max-w-[1600px]">
+      {/* Full width: the sidebar hugs the left edge so it lines up with the
+          header, which has never been width-capped. */}
+      <div className="flex">
         <aside className="hidden w-60 shrink-0 border-r border-slate-200 bg-white p-3 lg:block min-h-[calc(100vh-4rem)]">
           {nav}
         </aside>
