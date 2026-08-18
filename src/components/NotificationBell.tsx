@@ -8,7 +8,7 @@ import type { NotificationType } from '@/lib/types'
 function iconFor(type: NotificationType) {
   if (type === 'budget_threshold') return <CircleDollarSign size={16} className="text-amber-600" />
   if (type === 'task_assigned') return <ListChecks size={16} className="text-brand-600" />
-  return <FileCheck2 size={16} className="text-emerald-600" />
+  return <FileCheck2 size={16} className="text-brand-600" />
 }
 
 export function NotificationBell() {
@@ -17,7 +17,7 @@ export function NotificationBell() {
 
   return (
     <div className="relative">
-      <button className="btn-ghost relative !px-2.5" onClick={() => setOpen((v) => !v)} title="Notifications">
+      <button className="btn-onbrand relative !px-2.5" onClick={() => setOpen((v) => !v)} title="Notifications">
         <Bell size={17} />
         {unread > 0 && (
           <span className="absolute -right-1 -top-1 min-w-[18px] rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-[18px] text-white">
@@ -28,7 +28,7 @@ export function NotificationBell() {
 
       {open && (
         <div className="absolute right-0 z-40 mt-2 w-96 card overflow-hidden">
-          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2.5">
+          <div className="flex items-center justify-between border-b border-cream-300 px-4 py-2.5">
             <p className="text-sm font-semibold">Notifications</p>
             <div className="flex items-center gap-1">
               <button
@@ -45,21 +45,21 @@ export function NotificationBell() {
 
           <div className="max-h-[420px] overflow-y-auto">
             {items.length === 0 && (
-              <p className="px-4 py-8 text-center text-sm text-slate-500">Nothing yet.</p>
+              <p className="px-4 py-8 text-center text-sm text-ink-500">Nothing yet.</p>
             )}
             {items.slice(0, 40).map((n) => (
               <button
                 key={n.id}
                 onClick={() => void markRead(n.id)}
-                className={`flex w-full gap-3 border-b border-slate-100 px-4 py-3 text-left hover:bg-slate-50 ${
+                className={`flex w-full gap-3 border-b border-cream-200 px-4 py-3 text-left hover:bg-cream-100 ${
                   n.read_at ? '' : 'bg-brand-50/40'
                 }`}
               >
                 <span className="mt-0.5">{iconFor(n.type)}</span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium text-slate-900">{n.title}</span>
-                  {n.body && <span className="block text-xs text-slate-500">{n.body}</span>}
-                  <span className="mt-0.5 block text-[11px] text-slate-400">
+                  <span className="block text-sm font-medium text-ink-900">{n.title}</span>
+                  {n.body && <span className="block text-xs text-ink-500">{n.body}</span>}
+                  <span className="mt-0.5 block text-[11px] text-ink-400">
                     {relativeTime(n.created_at)}
                   </span>
                 </span>
@@ -71,7 +71,7 @@ export function NotificationBell() {
           <Link
             to="/notifications"
             onClick={() => setOpen(false)}
-            className="block border-t border-slate-200 px-4 py-2.5 text-center text-sm font-medium text-brand-700 hover:bg-slate-50"
+            className="block border-t border-cream-300 px-4 py-2.5 text-center text-sm font-medium text-brand-700 hover:bg-cream-100"
           >
             See all
           </Link>
@@ -91,14 +91,14 @@ export function NotificationToasts() {
       {toasts.map((t) => (
         <div
           key={t.id}
-          className="pointer-events-auto card flex gap-3 p-3.5 shadow-lg ring-1 ring-slate-900/5 animate-[fadeIn_.2s_ease-out]"
+          className="pointer-events-auto card flex gap-3 p-3.5 shadow-lg ring-1 ring-ink-900/5 animate-[fadeIn_.2s_ease-out]"
         >
           <span className="mt-0.5">{iconFor(t.type)}</span>
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-slate-900">{t.title}</p>
-            {t.body && <p className="text-xs text-slate-600">{t.body}</p>}
+            <p className="text-sm font-semibold text-ink-900">{t.title}</p>
+            {t.body && <p className="text-xs text-ink-600">{t.body}</p>}
           </div>
-          <button className="text-slate-400 hover:text-slate-600" onClick={() => dismissToast(t.id)}>
+          <button className="text-ink-400 hover:text-ink-600" onClick={() => dismissToast(t.id)}>
             <X size={15} />
           </button>
         </div>

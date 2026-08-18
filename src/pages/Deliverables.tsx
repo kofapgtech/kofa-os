@@ -39,10 +39,10 @@ export function Deliverables() {
         title="Deliverables"
         subtitle="Every work product, and exactly who has the ball."
         actions={
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-600">
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-ink-600">
             <input
               type="checkbox"
-              className="h-4 w-4 rounded border-slate-300"
+              className="h-4 w-4 rounded border-cream-400"
               checked={onlyMine}
               onChange={(e) => setOnlyMine(e.target.checked)}
             />
@@ -64,8 +64,8 @@ export function Deliverables() {
                 className="flex items-center justify-between gap-3 rounded-xl border border-brand-200 bg-white px-3 py-2.5 text-left hover:border-brand-400"
               >
                 <span className="min-w-0">
-                  <span className="block truncate text-sm font-medium text-slate-900">{d.title}</span>
-                  <span className="block text-xs text-slate-500">{projectName(d.project_id)}</span>
+                  <span className="block truncate text-sm font-medium text-ink-900">{d.title}</span>
+                  <span className="block text-xs text-ink-500">{projectName(d.project_id)}</span>
                 </span>
                 <span className={`chip shrink-0 ${STAGE_CLASS[d.stage]}`}>{STAGE_LABEL[d.stage]}</span>
               </button>
@@ -81,21 +81,21 @@ export function Deliverables() {
           {STAGE_ORDER.map((stage) => {
             const column = visible.filter((d) => d.stage === stage)
             return (
-              <div key={stage} className="min-w-[220px] rounded-2xl bg-slate-100/70 p-2">
+              <div key={stage} className="min-w-[220px] rounded-2xl bg-cream-200/70 p-2">
                 <div className="mb-2 flex items-center justify-between px-1.5">
-                  <span className="text-sm font-semibold text-slate-700">{STAGE_LABEL[stage]}</span>
-                  <span className="text-xs text-slate-500">{column.length}</span>
+                  <span className="text-sm font-semibold text-ink-700">{STAGE_LABEL[stage]}</span>
+                  <span className="text-xs text-ink-500">{column.length}</span>
                 </div>
                 <div className="space-y-2">
                   {column.map((d) => (
                     <button
                       key={d.id}
                       onClick={() => setOpen(d)}
-                      className="w-full rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm hover:border-brand-300"
+                      className="w-full rounded-xl border border-cream-300 bg-white p-3 text-left shadow-sm hover:border-brand-300"
                     >
-                      <p className="text-sm font-medium text-slate-900">{d.title}</p>
-                      <p className="mt-1 text-xs text-slate-500">{projectName(d.project_id)}</p>
-                      <p className="mt-2 text-xs text-slate-400">
+                      <p className="text-sm font-medium text-ink-900">{d.title}</p>
+                      <p className="mt-1 text-xs text-ink-500">{projectName(d.project_id)}</p>
+                      <p className="mt-2 text-xs text-ink-400">
                         v{d.version} · due {shortDate(d.due_date)}
                       </p>
                     </button>

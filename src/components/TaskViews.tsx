@@ -50,7 +50,7 @@ export function TaskViews({ tasks, people, hoursByTask, projectId, projectNames 
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <div className="flex rounded-xl border border-slate-200 bg-white p-0.5">
+        <div className="flex rounded-xl border border-cream-300 bg-white p-0.5">
           {(
             [
               ['list', ListIcon, 'List'],
@@ -62,7 +62,7 @@ export function TaskViews({ tasks, people, hoursByTask, projectId, projectNames 
               key={key}
               onClick={() => setMode(key)}
               className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                mode === key ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+                mode === key ? 'bg-brand-800 text-white' : 'text-ink-600 hover:bg-cream-200'
               }`}
             >
               <Icon size={15} />
@@ -93,7 +93,7 @@ export function TaskViews({ tasks, people, hoursByTask, projectId, projectNames 
           ))}
         </select>
 
-        <span className="text-sm text-slate-500">{filtered.length} tasks</span>
+        <span className="text-sm text-ink-500">{filtered.length} tasks</span>
 
         {projectId && (
           <button className="btn-primary ml-auto" onClick={() => setAdding(true)}>
@@ -152,7 +152,7 @@ function ListView({
     <div className="card overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full min-w-[720px]">
-          <thead className="border-b border-slate-200 bg-slate-50">
+          <thead className="border-b border-cream-300 bg-cream-100">
             <tr>
               <th className="th">Task</th>
               <th className="th">Status</th>
@@ -162,18 +162,18 @@ function ListView({
               <th className="th text-right">Logged / Est.</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-cream-200">
             {tasks.map((t) => {
               const overdue = t.due_date && t.status !== 'done' && new Date(t.due_date) < new Date()
               return (
-                <tr key={t.id} className="hover:bg-slate-50">
+                <tr key={t.id} className="hover:bg-cream-100">
                   <td className="td">
                     <button className="text-left" onClick={() => onOpen(t)}>
-                      <span className="block font-medium text-slate-900 hover:text-brand-700">
+                      <span className="block font-medium text-ink-900 hover:text-brand-700">
                         {t.title}
                       </span>
                       {projectNames?.[t.project_id] && (
-                        <span className="block text-xs text-slate-500">
+                        <span className="block text-xs text-ink-500">
                           {projectNames[t.project_id]}
                         </span>
                       )}
@@ -208,7 +208,7 @@ function ListView({
                   </td>
                   <td className="td text-right tabular-nums">
                     {hours(hoursByTask[t.id] ?? 0)}
-                    <span className="text-slate-400"> / {t.estimated_hours ?? '—'}h</span>
+                    <span className="text-ink-400"> / {t.estimated_hours ?? '—'}h</span>
                   </td>
                 </tr>
               )
@@ -244,11 +244,11 @@ function BoardView({
               if (dragging) update.mutate({ id: dragging, patch: { status } })
               setDragging(null)
             }}
-            className="min-w-[220px] rounded-2xl bg-slate-100/70 p-2"
+            className="min-w-[220px] rounded-2xl bg-cream-200/70 p-2"
           >
             <div className="mb-2 flex items-center justify-between px-1.5">
-              <span className="text-sm font-semibold text-slate-700">{TASK_STATUS_LABEL[status]}</span>
-              <span className="text-xs text-slate-500">{column.length}</span>
+              <span className="text-sm font-semibold text-ink-700">{TASK_STATUS_LABEL[status]}</span>
+              <span className="text-xs text-ink-500">{column.length}</span>
             </div>
             <div className="space-y-2">
               {column.map((t) => (
@@ -257,12 +257,12 @@ function BoardView({
                   draggable
                   onDragStart={() => setDragging(t.id)}
                   onClick={() => onOpen(t)}
-                  className="cursor-grab rounded-xl border border-slate-200 bg-white p-3 shadow-sm active:cursor-grabbing"
+                  className="cursor-grab rounded-xl border border-cream-300 bg-white p-3 shadow-sm active:cursor-grabbing"
                 >
-                  <p className="text-sm font-medium text-slate-900">{t.title}</p>
+                  <p className="text-sm font-medium text-ink-900">{t.title}</p>
                   <div className="mt-2 flex items-center justify-between gap-2">
                     <Chip className={PRIORITY_CLASS[t.priority]}>{t.priority}</Chip>
-                    <span className="flex items-center gap-1.5 text-xs text-slate-500">
+                    <span className="flex items-center gap-1.5 text-xs text-ink-500">
                       {shortDate(t.due_date)}
                       <Avatar name={nameById[t.assignee_id ?? '']} size={20} />
                     </span>
@@ -313,7 +313,7 @@ function CalendarView({ tasks, onOpen }: { tasks: Task[]; onOpen: (t: Task) => v
         </button>
       </div>
 
-      <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold text-slate-500">
+      <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold text-ink-500">
         {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
           <div key={d} className="py-1">
             {d}
@@ -333,10 +333,10 @@ function CalendarView({ tasks, onOpen }: { tasks: Task[]; onOpen: (t: Task) => v
             <div
               key={day}
               className={`min-h-[92px] rounded-lg border p-1.5 ${
-                isToday ? 'border-brand-400 bg-brand-50/50' : 'border-slate-200'
+                isToday ? 'border-brand-400 bg-brand-50/50' : 'border-cream-300'
               }`}
             >
-              <p className={`text-xs ${isToday ? 'font-bold text-brand-700' : 'text-slate-500'}`}>{day}</p>
+              <p className={`text-xs ${isToday ? 'font-bold text-brand-700' : 'text-ink-500'}`}>{day}</p>
               <div className="mt-1 space-y-1">
                 {items.slice(0, 3).map((t) => (
                   <button
@@ -349,7 +349,7 @@ function CalendarView({ tasks, onOpen }: { tasks: Task[]; onOpen: (t: Task) => v
                   </button>
                 ))}
                 {items.length > 3 && (
-                  <p className="px-1 text-[11px] text-slate-500">+{items.length - 3} more</p>
+                  <p className="px-1 text-[11px] text-ink-500">+{items.length - 3} more</p>
                 )}
               </div>
             </div>
@@ -365,9 +365,9 @@ function CalendarView({ tasks, onOpen }: { tasks: Task[]; onOpen: (t: Task) => v
 function Drawer({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-slate-900/30" onClick={onClose} />
+      <div className="absolute inset-0 bg-brand-800/30" onClick={onClose} />
       <div className="relative flex h-full w-full max-w-md flex-col overflow-y-auto bg-white shadow-xl">
-        <div className="sticky top-0 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-3.5">
+        <div className="sticky top-0 flex items-center justify-between border-b border-cream-300 bg-white px-5 py-3.5">
           <p className="text-sm font-semibold">{title}</p>
           <button className="btn-ghost !px-2.5" onClick={onClose}>
             <X size={16} />
@@ -474,14 +474,14 @@ function TaskPanel({
         />
       </div>
 
-      <div className="mt-5 rounded-xl border border-slate-200 p-3">
+      <div className="mt-5 rounded-xl border border-cream-300 p-3">
         <div className="flex items-center justify-between">
-          <span className="flex items-center gap-2 text-sm text-slate-600">
+          <span className="flex items-center gap-2 text-sm text-ink-600">
             <Clock size={15} /> Time logged
           </span>
           <span className="text-sm font-semibold tabular-nums">
             {hours(hoursLogged)}
-            <span className="font-normal text-slate-400"> of {task.estimated_hours ?? '—'}h est.</span>
+            <span className="font-normal text-ink-400"> of {task.estimated_hours ?? '—'}h est.</span>
           </span>
         </div>
         <button

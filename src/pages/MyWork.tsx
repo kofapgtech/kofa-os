@@ -85,7 +85,7 @@ export function MyWork() {
         <StatCard
           label="Overdue"
           value={overdue.length}
-          tone={overdue.length ? 'text-rose-600' : 'text-slate-900'}
+          tone={overdue.length ? 'text-rose-600' : 'text-ink-900'}
           sub={overdue.length ? 'Needs attention today' : 'Nothing late'}
           icon={<AlertTriangle size={16} />}
         />
@@ -99,17 +99,17 @@ export function MyWork() {
 
       {myReviews.length > 0 && (
         <div className="card mb-6 p-4">
-          <p className="mb-3 text-sm font-semibold text-slate-900">Deliverables waiting on you</p>
+          <p className="mb-3 text-sm font-semibold text-ink-900">Deliverables waiting on you</p>
           <div className="space-y-2">
             {myReviews.map((d) => (
               <Link
                 key={d.id}
                 to="/deliverables"
-                className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 px-3 py-2.5 hover:bg-slate-50"
+                className="flex items-center justify-between gap-3 rounded-xl border border-cream-300 px-3 py-2.5 hover:bg-cream-100"
               >
                 <span className="min-w-0">
-                  <span className="block truncate text-sm font-medium text-slate-900">{d.title}</span>
-                  <span className="block text-xs text-slate-500">
+                  <span className="block truncate text-sm font-medium text-ink-900">{d.title}</span>
+                  <span className="block text-xs text-ink-500">
                     {projectName(d.project_id)} · due {shortDate(d.due_date)}
                   </span>
                 </span>
@@ -120,7 +120,7 @@ export function MyWork() {
         </div>
       )}
 
-      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">My tasks</h2>
+      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-ink-500">My tasks</h2>
       {myTasks.length === 0 ? (
         <EmptyState title="Nothing assigned to you yet." hint="Tasks assigned to you will show up here." />
       ) : (
@@ -133,7 +133,7 @@ export function MyWork() {
       )}
 
       {openTasks.length === 0 && myTasks.length > 0 && (
-        <p className="mt-4 flex items-center justify-center gap-2 text-sm text-emerald-700">
+        <p className="mt-4 flex items-center justify-center gap-2 text-sm text-brand-700">
           <CheckCircle2 size={16} /> Everything assigned to you is done.
         </p>
       )}

@@ -115,30 +115,30 @@ export function Timesheet() {
         <div className="card overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[760px]">
-              <thead className="border-b border-slate-200 bg-slate-50">
+              <thead className="border-b border-cream-300 bg-cream-100">
                 <tr>
                   <th className="th">Project / task</th>
                   {days.map((d) => (
                     <th key={d.toISOString()} className="th text-center">
                       {d.toLocaleDateString('en-US', { weekday: 'short' })}
-                      <span className="block font-normal text-slate-400">{d.getDate()}</span>
+                      <span className="block font-normal text-ink-400">{d.getDate()}</span>
                     </th>
                   ))}
                   <th className="th text-right">Total</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-cream-200">
                 {rows.map((r) => {
                   const total = r.cells.reduce((a, b) => a + b, 0)
                   return (
-                    <tr key={`${r.projectId}-${r.taskId}`} className="hover:bg-slate-50">
+                    <tr key={`${r.projectId}-${r.taskId}`} className="hover:bg-cream-100">
                       <td className="td">
-                        <span className="block font-medium text-slate-900">{taskName(r.taskId)}</span>
-                        <span className="block text-xs text-slate-500">{projectName(r.projectId)}</span>
+                        <span className="block font-medium text-ink-900">{taskName(r.taskId)}</span>
+                        <span className="block text-xs text-ink-500">{projectName(r.projectId)}</span>
                       </td>
                       {r.cells.map((c, i) => (
                         <td key={i} className="td text-center tabular-nums">
-                          {c > 0 ? c.toFixed(2) : <span className="text-slate-300">—</span>}
+                          {c > 0 ? c.toFixed(2) : <span className="text-ink-300">—</span>}
                         </td>
                       ))}
                       <td className="td text-right font-semibold tabular-nums">{total.toFixed(2)}</td>
@@ -146,7 +146,7 @@ export function Timesheet() {
                   )
                 })}
               </tbody>
-              <tfoot className="border-t-2 border-slate-200 bg-slate-50">
+              <tfoot className="border-t-2 border-cream-300 bg-cream-100">
                 <tr>
                   <td className="td font-semibold">Daily total</td>
                   {dayTotals.map((t, i) => (
@@ -163,20 +163,20 @@ export function Timesheet() {
       )}
 
       <div className="mt-6">
-        <p className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+        <p className="mb-3 text-sm font-semibold uppercase tracking-wide text-ink-500">
           Entries this week
         </p>
-        <div className="card divide-y divide-slate-100">
+        <div className="card divide-y divide-cream-200">
           {weekEntries.slice(0, 40).map((e) => (
             <div key={e.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-slate-900">
+                <p className="truncate text-sm font-medium text-ink-900">
                   {taskName(e.task_id)}
                   {!e.is_billable && (
-                    <span className="ml-2 chip bg-slate-100 text-slate-600">Internal</span>
+                    <span className="ml-2 chip bg-cream-200 text-ink-600">Internal</span>
                   )}
                 </p>
-                <p className="truncate text-xs text-slate-500">
+                <p className="truncate text-xs text-ink-500">
                   {projectName(e.project_id)} · {shortDate(e.started_at)}
                   {e.description ? ` · ${e.description}` : ''}
                 </p>
@@ -186,7 +186,7 @@ export function Timesheet() {
                   {minutesToHours(e.duration_minutes).toFixed(2)}h
                 </span>
                 <button
-                  className="text-slate-400 hover:text-rose-600"
+                  className="text-ink-400 hover:text-rose-600"
                   title="Delete entry"
                   onClick={() => remove.mutate(e.id)}
                 >
@@ -196,7 +196,7 @@ export function Timesheet() {
             </div>
           ))}
           {weekEntries.length === 0 && (
-            <p className="px-4 py-6 text-center text-sm text-slate-500">Nothing logged yet.</p>
+            <p className="px-4 py-6 text-center text-sm text-ink-500">Nothing logged yet.</p>
           )}
         </div>
       </div>
@@ -246,7 +246,7 @@ function LogTimeDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center p-4">
-      <div className="absolute inset-0 bg-slate-900/30" onClick={onClose} />
+      <div className="absolute inset-0 bg-brand-800/30" onClick={onClose} />
       <div className="relative w-full max-w-md card p-5">
         <p className="mb-4 text-sm font-semibold">Log time</p>
         <div className="space-y-3">
@@ -304,10 +304,10 @@ function LogTimeDialog({ onClose }: { onClose: () => void }) {
             <label className="label">Note</label>
             <input className="input" value={note} onChange={(e) => setNote(e.target.value)} />
           </div>
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-ink-700">
             <input
               type="checkbox"
-              className="h-4 w-4 rounded border-slate-300"
+              className="h-4 w-4 rounded border-cream-400"
               checked={billable}
               onChange={(e) => setBillable(e.target.checked)}
             />

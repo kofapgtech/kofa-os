@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -9,42 +9,53 @@
     -webkit-font-smoothing: antialiased;
   }
   body {
-    @apply bg-slate-50 text-slate-900 font-sans;
+    @apply bg-cream-100 text-ink-900 font-sans;
+  }
+  ::selection {
+    @apply bg-brand-200 text-brand-900;
   }
 }
 
 @layer components {
   .card {
-    @apply bg-white border border-slate-200 rounded-2xl shadow-card;
+    @apply bg-white border border-cream-300 rounded-2xl shadow-card;
   }
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium
            transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[40px];
   }
   .btn-primary {
-    @apply btn bg-brand-600 text-white hover:bg-brand-700;
+    @apply btn bg-brand-600 text-cream-50 hover:bg-brand-700;
+  }
+  /* The site's peach secondary CTA. */
+  .btn-accent {
+    @apply btn bg-accent-200 text-accent-700 hover:bg-accent-300;
   }
   .btn-ghost {
-    @apply btn text-slate-700 hover:bg-slate-100 border border-slate-200 bg-white;
+    @apply btn text-ink-700 hover:bg-cream-200 border border-cream-300 bg-white;
+  }
+  /* The header sits on forest green, so its buttons invert. */
+  .btn-onbrand {
+    @apply btn text-cream-100 border border-white/20 bg-white/10 hover:bg-white/20;
   }
   .btn-danger {
     @apply btn bg-white text-rose-700 border border-rose-200 hover:bg-rose-50;
   }
   .input {
-    @apply w-full rounded-xl border border-slate-300 px-3 py-2 text-sm
-           placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-100
+    @apply w-full rounded-xl border border-cream-400 px-3 py-2 text-sm text-ink-900
+           placeholder:text-ink-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-100
            focus:outline-none bg-white;
   }
   .label {
-    @apply block text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1.5;
+    @apply block text-xs font-semibold uppercase tracking-wide text-ink-500 mb-1.5;
   }
   .chip {
     @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium;
   }
   .th {
-    @apply text-left text-xs font-semibold uppercase tracking-wide text-slate-500 px-4 py-2.5;
+    @apply text-left text-xs font-semibold uppercase tracking-wide text-ink-500 px-4 py-2.5;
   }
   .td {
-    @apply px-4 py-2.5 text-sm text-slate-700 align-middle;
+    @apply px-4 py-2.5 text-sm text-ink-700 align-middle;
   }
 }

@@ -25,8 +25,8 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
     return (
       <div className="grid min-h-screen place-items-center p-6">
         <div className="card max-w-md p-6 text-center">
-          <p className="text-base font-semibold text-slate-900">No workspace access</p>
-          <p className="mt-2 text-sm text-slate-600">
+          <p className="text-base font-semibold text-ink-900">No workspace access</p>
+          <p className="mt-2 text-sm text-ink-600">
             This account isn't attached to a Kofa OS profile yet. An admin needs to invite it before
             it can see anything.
           </p>

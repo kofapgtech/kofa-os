@@ -41,22 +41,23 @@ export function GlobalTimer() {
   )
 
   if (running) {
+    // Cream chip, so a running timer stands out against the green header.
     return (
-      <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 pl-3 pr-1.5 py-1.5">
+      <div className="flex items-center gap-3 rounded-xl border border-cream-300 bg-cream-100 pl-3 pr-1.5 py-1.5">
         <span className="relative flex h-2 w-2">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-          <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand-400 opacity-75" />
+          <span className="relative inline-flex h-2 w-2 rounded-full bg-brand-500" />
         </span>
         <div className="min-w-0">
-          <p className="text-sm font-semibold tabular-nums text-emerald-900 leading-tight">
+          <p className="text-sm font-semibold tabular-nums text-brand-900 leading-tight">
             {clock(elapsedSeconds)}
           </p>
-          <p className="truncate text-xs text-emerald-700 max-w-[180px] leading-tight">
+          <p className="truncate text-xs text-brand-700 max-w-[180px] leading-tight">
             {runningTask?.title ?? runningProject?.name ?? 'Tracking'}
           </p>
         </div>
         <button
-          className="btn bg-emerald-600 text-white hover:bg-emerald-700 !min-h-0 px-2.5 py-1.5"
+          className="btn bg-brand-600 text-cream-50 hover:bg-brand-700 !min-h-0 px-2.5 py-1.5"
           onClick={() => void stop()}
           disabled={busy}
           title="Stop timer"
@@ -69,13 +70,13 @@ export function GlobalTimer() {
 
   return (
     <div className="relative">
-      <button className="btn-ghost" onClick={() => setOpen((v) => !v)}>
+      <button className="btn-onbrand" onClick={() => setOpen((v) => !v)}>
         <TimerIcon size={16} /> Start timer
       </button>
 
       {open && (
         <div className="absolute right-0 z-40 mt-2 w-80 card p-4">
-          <p className="text-sm font-semibold text-slate-900 mb-3">Track time</p>
+          <p className="text-sm font-semibold text-ink-900 mb-3">Track time</p>
 
           {myTasks.length > 0 && (
             <div className="mb-3">
@@ -84,7 +85,7 @@ export function GlobalTimer() {
                 {myTasks.slice(0, 8).map((t) => (
                   <button
                     key={t.id}
-                    className="w-full text-left rounded-lg px-2 py-1.5 text-sm hover:bg-slate-100"
+                    className="w-full text-left rounded-lg px-2 py-1.5 text-sm hover:bg-cream-200"
                     onClick={async () => {
                       await start(t.project_id, t.id)
                       setOpen(false)
@@ -97,7 +98,7 @@ export function GlobalTimer() {
             </div>
           )}
 
-          <div className="border-t border-slate-200 pt-3 space-y-2">
+          <div className="border-t border-cream-300 pt-3 space-y-2">
             <div>
               <label className="label">Project</label>
               <select

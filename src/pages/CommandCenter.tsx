@@ -95,7 +95,7 @@ export function CommandCenter() {
         <StatCard
           label="Projects at risk"
           value={atRisk.length}
-          tone={atRisk.length ? 'text-rose-600' : 'text-slate-900'}
+          tone={atRisk.length ? 'text-rose-600' : 'text-ink-900'}
           sub="Over 90% of budget consumed"
           icon={<AlertTriangle size={16} />}
         />
@@ -115,48 +115,48 @@ export function CommandCenter() {
 
       <div className="mb-4 grid gap-4 lg:grid-cols-2">
         <div className="card p-4">
-          <p className="mb-3 text-sm font-semibold text-slate-900">Utilization trend</p>
+          <p className="mb-3 text-sm font-semibold text-ink-900">Utilization trend</p>
           <div className="h-56">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={utilTrend} margin={{ top: 5, right: 8, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                <XAxis dataKey="week" tick={{ fontSize: 11, fill: '#64748b' }} />
-                <YAxis tick={{ fontSize: 11, fill: '#64748b' }} unit="%" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#E9DFCE" vertical={false} />
+                <XAxis dataKey="week" tick={{ fontSize: 11, fill: '#6A6458' }} />
+                <YAxis tick={{ fontSize: 11, fill: '#6A6458' }} unit="%" />
                 <Tooltip
-                  contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 12 }}
+                  contentStyle={{ borderRadius: 12, border: '1px solid #E9DFCE', fontSize: 12 }}
                   formatter={(v) => [`${v}%`, 'Utilization']}
                 />
-                <Line type="monotone" dataKey="utilization" stroke="#4f46e5" strokeWidth={2} dot={{ r: 3 }} />
+                <Line type="monotone" dataKey="utilization" stroke="#2E5C41" strokeWidth={2} dot={{ r: 3 }} />
               </LineChart>
             </ResponsiveContainer>
           </div>
         </div>
 
         <div className="card p-4">
-          <p className="mb-3 text-sm font-semibold text-slate-900">Utilization by person, this week</p>
+          <p className="mb-3 text-sm font-semibold text-ink-900">Utilization by person, this week</p>
           <div className="h-56">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={perPerson} margin={{ top: 5, right: 8, left: -20, bottom: 18 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="#E9DFCE" vertical={false} />
                 {/* interval=0 so every name renders instead of being dropped for overlap */}
                 <XAxis
                   dataKey="name"
-                  tick={{ fontSize: 10, fill: '#64748b' }}
+                  tick={{ fontSize: 10, fill: '#6A6458' }}
                   interval={0}
                   angle={-35}
                   textAnchor="end"
                   height={50}
                 />
-                <YAxis tick={{ fontSize: 11, fill: '#64748b' }} unit="%" />
+                <YAxis tick={{ fontSize: 11, fill: '#6A6458' }} unit="%" />
                 <Tooltip
-                  contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 12 }}
+                  contentStyle={{ borderRadius: 12, border: '1px solid #E9DFCE', fontSize: 12 }}
                   formatter={(v) => [`${v}%`, 'Utilization']}
                 />
                 <Bar dataKey="pct" radius={[6, 6, 0, 0]}>
                   {perPerson.map((p) => (
                     <Cell
                       key={p.name}
-                      fill={p.pct > 100 ? '#f43f5e' : p.pct >= 70 ? '#10b981' : '#94a3b8'}
+                      fill={p.pct > 100 ? '#f43f5e' : p.pct >= 70 ? '#367A57' : '#B5AEA0'}
                     />
                   ))}
                 </Bar>
@@ -167,12 +167,12 @@ export function CommandCenter() {
       </div>
 
       <div className="mb-4 card overflow-hidden">
-        <p className="border-b border-slate-200 px-4 py-3 text-sm font-semibold text-slate-900">
+        <p className="border-b border-cream-300 px-4 py-3 text-sm font-semibold text-ink-900">
           Budget health by project
         </p>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px]">
-            <thead className="border-b border-slate-200 bg-slate-50">
+            <thead className="border-b border-cream-300 bg-cream-100">
               <tr>
                 <th className="th">Project</th>
                 <th className="th">Department</th>
@@ -183,14 +183,14 @@ export function CommandCenter() {
                 <th className="th text-right">Margin</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-cream-200">
               {active.map((p) => (
-                <tr key={p.project_id} className="hover:bg-slate-50">
+                <tr key={p.project_id} className="hover:bg-cream-100">
                   <td className="td">
-                    <Link className="font-medium text-slate-900 hover:text-brand-700" to={`/projects/${p.project_id}`}>
+                    <Link className="font-medium text-ink-900 hover:text-brand-700" to={`/projects/${p.project_id}`}>
                       {p.name}
                     </Link>
-                    <span className="block text-xs text-slate-500">{p.account_name}</span>
+                    <span className="block text-xs text-ink-500">{p.account_name}</span>
                   </td>
                   <td className="td">{p.department_name ?? '—'}</td>
                   <td className="td">{nameOf(p.lead_id)}</td>
@@ -211,13 +211,13 @@ export function CommandCenter() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="card p-4">
-          <p className="mb-3 text-sm font-semibold text-slate-900">Department load</p>
+          <p className="mb-3 text-sm font-semibold text-ink-900">Department load</p>
           <div className="space-y-2">
             {departments.map((d) => (
-              <div key={d.department_id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 px-3 py-2.5">
+              <div key={d.department_id} className="flex items-center justify-between gap-3 rounded-xl border border-cream-300 px-3 py-2.5">
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-slate-900">{d.name}</p>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-sm font-medium text-ink-900">{d.name}</p>
+                  <p className="text-xs text-ink-500">
                     {d.active_projects} projects · {d.open_tasks} open tasks
                     {d.overdue_tasks > 0 && (
                       <span className="text-rose-600"> · {d.overdue_tasks} overdue</span>
@@ -226,7 +226,7 @@ export function CommandCenter() {
                 </div>
                 <div className="text-right">
                   <p className="text-sm font-semibold tabular-nums">{hours(d.hours_this_week)}</p>
-                  <p className="text-xs text-slate-500">this week</p>
+                  <p className="text-xs text-ink-500">this week</p>
                 </div>
               </div>
             ))}
@@ -234,20 +234,20 @@ export function CommandCenter() {
         </div>
 
         <div className="card p-4">
-          <p className="mb-3 text-sm font-semibold text-slate-900">Stuck in review</p>
+          <p className="mb-3 text-sm font-semibold text-ink-900">Stuck in review</p>
           {inReview.length === 0 ? (
-            <p className="text-sm text-slate-500">Nothing waiting.</p>
+            <p className="text-sm text-ink-500">Nothing waiting.</p>
           ) : (
             <div className="space-y-2">
               {inReview.map((d) => (
                 <Link
                   key={d.id}
                   to="/deliverables"
-                  className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 px-3 py-2.5 hover:bg-slate-50"
+                  className="flex items-center justify-between gap-3 rounded-xl border border-cream-300 px-3 py-2.5 hover:bg-cream-100"
                 >
                   <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium text-slate-900">{d.title}</span>
-                    <span className="block text-xs text-slate-500">
+                    <span className="block truncate text-sm font-medium text-ink-900">{d.title}</span>
+                    <span className="block text-xs text-ink-500">
                       {nameOf(d.reviewer_id)} · due {shortDate(d.due_date)}
                     </span>
                   </span>

@@ -64,7 +64,7 @@ export function ProjectDetail() {
 
   return (
     <div>
-      <Link to="/projects" className="mb-3 inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800">
+      <Link to="/projects" className="mb-3 inline-flex items-center gap-1.5 text-sm text-ink-500 hover:text-ink-800">
         <ArrowLeft size={15} /> All projects
       </Link>
 
@@ -101,7 +101,7 @@ export function ProjectDetail() {
           tone={
             budget.remaining_amount !== null && budget.remaining_amount < 0
               ? 'text-rose-600'
-              : 'text-slate-900'
+              : 'text-ink-900'
           }
           sub={budget.margin_pct !== null ? `${budget.margin_pct}% margin` : 'Restricted'}
         />
@@ -111,7 +111,7 @@ export function ProjectDetail() {
           tone={
             budget.projected_amount !== null && budget.projected_amount > budget.budget_amount * 1.05
               ? 'text-rose-600'
-              : 'text-slate-900'
+              : 'text-ink-900'
           }
           sub={
             budget.projected_amount === null
@@ -127,7 +127,7 @@ export function ProjectDetail() {
         <BurnBar percent={isLeadership ? budget.pct_amount : budget.pct_hours} />
       </div>
 
-      <div className="mb-4 flex gap-1 border-b border-slate-200">
+      <div className="mb-4 flex gap-1 border-b border-cream-300">
         {tabs.map(([key, label, count]) => (
           <button
             key={key}
@@ -135,11 +135,11 @@ export function ProjectDetail() {
             className={`-mb-px border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
               tab === key
                 ? 'border-brand-600 text-brand-700'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
+                : 'border-transparent text-ink-500 hover:text-ink-800'
             }`}
           >
             {label}
-            {count !== null && <span className="ml-1.5 text-xs text-slate-400">{count}</span>}
+            {count !== null && <span className="ml-1.5 text-xs text-ink-400">{count}</span>}
           </button>
         ))}
       </div>
@@ -176,7 +176,7 @@ function TimeTab({
     <div className="card overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full min-w-[640px]">
-          <thead className="border-b border-slate-200 bg-slate-50">
+          <thead className="border-b border-cream-300 bg-cream-100">
             <tr>
               <th className="th">Date</th>
               <th className="th">Person</th>
@@ -186,15 +186,15 @@ function TimeTab({
               <th className="th text-right">Hours</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-cream-200">
             {entries.slice(0, 200).map((e) => (
-              <tr key={e.id} className="hover:bg-slate-50">
+              <tr key={e.id} className="hover:bg-cream-100">
                 <td className="td whitespace-nowrap">{shortDate(e.started_at)}</td>
                 <td className="td">{nameOf(e.user_id)}</td>
                 <td className="td">{taskOf(e.task_id)}</td>
-                <td className="td text-slate-500">{e.description ?? '—'}</td>
+                <td className="td text-ink-500">{e.description ?? '—'}</td>
                 <td className="td">
-                  <span className={`chip ${e.is_billable ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+                  <span className={`chip ${e.is_billable ? 'bg-brand-100 text-brand-700' : 'bg-cream-200 text-ink-600'}`}>
                     {e.is_billable ? 'Billable' : 'Internal'}
                   </span>
                 </td>
@@ -226,10 +226,10 @@ function DeliverablesTab({
         {deliverables.map((d) => (
           <button key={d.id} onClick={() => setOpen(d)} className="card p-4 text-left hover:border-brand-300">
             <div className="flex items-start justify-between gap-2">
-              <p className="text-sm font-semibold text-slate-900">{d.title}</p>
+              <p className="text-sm font-semibold text-ink-900">{d.title}</p>
               <span className={`chip shrink-0 ${STAGE_CLASS[d.stage]}`}>{STAGE_LABEL[d.stage]}</span>
             </div>
-            <p className="mt-2 text-xs text-slate-500">
+            <p className="mt-2 text-xs text-ink-500">
               v{d.version} · due {shortDate(d.due_date)}
             </p>
           </button>
@@ -285,21 +285,21 @@ function BudgetTab({ projectId }: { projectId: string }) {
   return (
     <div className="space-y-4">
       {!isLeadership && (
-        <p className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-600">
+        <p className="flex items-center gap-2 rounded-xl border border-cream-300 bg-cream-100 px-3.5 py-2.5 text-sm text-ink-600">
           <Lock size={15} /> Rates and margin are restricted to leadership. Hours are shown in full.
         </p>
       )}
 
       <div className="card p-4">
-        <p className="mb-3 text-sm font-semibold text-slate-900">Hours burned over time</p>
+        <p className="mb-3 text-sm font-semibold text-ink-900">Hours burned over time</p>
         <div className="h-64 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={burnUp} margin={{ top: 5, right: 8, left: -18, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-              <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#64748b' }} minTickGap={28} />
-              <YAxis tick={{ fontSize: 11, fill: '#64748b' }} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#E9DFCE" vertical={false} />
+              <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#6A6458' }} minTickGap={28} />
+              <YAxis tick={{ fontSize: 11, fill: '#6A6458' }} />
               <Tooltip
-                contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 12 }}
+                contentStyle={{ borderRadius: 12, border: '1px solid #E9DFCE', fontSize: 12 }}
                 formatter={(v) => [`${v}h`, 'Cumulative']}
               />
               <ReferenceLine
@@ -308,25 +308,25 @@ function BudgetTab({ projectId }: { projectId: string }) {
                 strokeDasharray="4 4"
                 label={{ value: 'Budget', position: 'insideTopRight', fill: '#f43f5e', fontSize: 11 }}
               />
-              <Area type="monotone" dataKey="cumulative" stroke="#4f46e5" fill="#c7d2fe" strokeWidth={2} />
+              <Area type="monotone" dataKey="cumulative" stroke="#2E5C41" fill="#B9D6C5" strokeWidth={2} />
             </AreaChart>
           </ResponsiveContainer>
         </div>
       </div>
 
       <div className="card p-4">
-        <p className="mb-3 text-sm font-semibold text-slate-900">Hours by person</p>
+        <p className="mb-3 text-sm font-semibold text-ink-900">Hours by person</p>
         <div className="h-64 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={byPerson} margin={{ top: 5, right: 8, left: -18, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-              <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} />
-              <YAxis tick={{ fontSize: 11, fill: '#64748b' }} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#E9DFCE" vertical={false} />
+              <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#6A6458' }} />
+              <YAxis tick={{ fontSize: 11, fill: '#6A6458' }} />
               <Tooltip
-                contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 12 }}
+                contentStyle={{ borderRadius: 12, border: '1px solid #E9DFCE', fontSize: 12 }}
                 formatter={(v) => [`${v}h`, 'Logged']}
               />
-              <Bar dataKey="hours" fill="#6366f1" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="hours" fill="#367A57" radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>

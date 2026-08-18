@@ -43,8 +43,8 @@ export function Accounts() {
             <div key={a.id} className="card p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <p className="text-base font-semibold text-slate-900">{a.name}</p>
-                  <p className="text-sm text-slate-500">
+                  <p className="text-base font-semibold text-ink-900">{a.name}</p>
+                  <p className="text-sm text-ink-500">
                     {a.primary_contact_name ?? 'No contact'}
                     {a.primary_contact_email ? ` · ${a.primary_contact_email}` : ''}
                   </p>
@@ -52,7 +52,7 @@ export function Accounts() {
 
                 <div className="flex flex-wrap items-center gap-2">
                   {isLeadership && (
-                    <span className="text-sm text-slate-500">
+                    <span className="text-sm text-ink-500">
                       {hours(totalHours)} · {money(totalAccrued)} of {money(totalBudget)}
                     </span>
                   )}
@@ -85,10 +85,10 @@ export function Accounts() {
                   <Link
                     key={p.project_id}
                     to={`/projects/${p.project_id}`}
-                    className="rounded-xl border border-slate-200 p-3 hover:border-brand-300"
+                    className="rounded-xl border border-cream-300 p-3 hover:border-brand-300"
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <p className="truncate text-sm font-medium text-slate-900">{p.name}</p>
+                      <p className="truncate text-sm font-medium text-ink-900">{p.name}</p>
                       <span className={`chip shrink-0 ${PROJECT_STATUS_CLASS[p.status]}`}>
                         {PROJECT_STATUS_LABEL[p.status]}
                       </span>

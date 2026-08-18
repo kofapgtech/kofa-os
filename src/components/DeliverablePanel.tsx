@@ -69,9 +69,9 @@ export function DeliverablePanel({
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-slate-900/30" onClick={onClose} />
+      <div className="absolute inset-0 bg-brand-800/30" onClick={onClose} />
       <div className="relative flex h-full w-full max-w-lg flex-col overflow-y-auto bg-white shadow-xl">
-        <div className="sticky top-0 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-3.5">
+        <div className="sticky top-0 flex items-center justify-between border-b border-cream-300 bg-white px-5 py-3.5">
           <p className="text-sm font-semibold">Deliverable</p>
           <button className="btn-ghost !px-2.5" onClick={onClose}>
             <X size={16} />
@@ -81,8 +81,8 @@ export function DeliverablePanel({
         <div className="p-5">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold text-slate-900">{deliverable.title}</h2>
-              <p className="mt-0.5 text-sm text-slate-500">
+              <h2 className="text-lg font-semibold text-ink-900">{deliverable.title}</h2>
+              <p className="mt-0.5 text-sm text-ink-500">
                 {projectName} · v{deliverable.version} · due {shortDate(deliverable.due_date)}
               </p>
             </div>
@@ -92,18 +92,18 @@ export function DeliverablePanel({
           </div>
 
           {deliverable.description && (
-            <p className="mt-3 text-sm text-slate-600">{deliverable.description}</p>
+            <p className="mt-3 text-sm text-ink-600">{deliverable.description}</p>
           )}
 
           <div className="mt-4 grid grid-cols-2 gap-3">
-            <div className="rounded-xl border border-slate-200 p-3">
+            <div className="rounded-xl border border-cream-300 p-3">
               <p className="label !mb-1">Owner</p>
               <span className="flex items-center gap-2 text-sm">
                 <Avatar name={nameOf(deliverable.owner_id)} size={22} />
                 {nameOf(deliverable.owner_id)}
               </span>
             </div>
-            <div className="rounded-xl border border-slate-200 p-3">
+            <div className="rounded-xl border border-cream-300 p-3">
               <p className="label !mb-1">Reviewer</p>
               <span className="flex items-center gap-2 text-sm">
                 <Avatar name={nameOf(deliverable.reviewer_id)} size={22} />
@@ -113,8 +113,8 @@ export function DeliverablePanel({
           </div>
 
           {/* Actions --------------------------------------------------- */}
-          <div className="mt-5 rounded-xl border border-slate-200 p-4">
-            <p className="mb-3 text-sm font-semibold text-slate-900">Move this forward</p>
+          <div className="mt-5 rounded-xl border border-cream-300 p-4">
+            <p className="mb-3 text-sm font-semibold text-ink-900">Move this forward</p>
 
             {(needsComment || pending) && (
               <textarea
@@ -146,7 +146,7 @@ export function DeliverablePanel({
             </div>
 
             {isOwner && NEXT_STAGES[deliverable.stage].some((s) => s === 'client_review' || s === 'approved') && (
-              <p className="mt-2 text-xs text-slate-500">
+              <p className="mt-2 text-xs text-ink-500">
                 You own this one, so someone else has to approve it.
               </p>
             )}
@@ -155,38 +155,38 @@ export function DeliverablePanel({
 
           {/* Audit trail ----------------------------------------------- */}
           <div className="mt-6">
-            <p className="mb-3 text-sm font-semibold text-slate-900">History</p>
+            <p className="mb-3 text-sm font-semibold text-ink-900">History</p>
             {isLoading ? (
               <Spinner label="Loading history" />
             ) : reviews.length === 0 ? (
-              <p className="text-sm text-slate-500">Nothing has happened to this yet.</p>
+              <p className="text-sm text-ink-500">Nothing has happened to this yet.</p>
             ) : (
-              <ol className="relative space-y-4 border-l border-slate-200 pl-5">
+              <ol className="relative space-y-4 border-l border-cream-300 pl-5">
                 {reviews.map((r) => (
                   <li key={r.id} className="relative">
                     <span
                       className={`absolute -left-[26px] top-1 grid h-3 w-3 place-items-center rounded-full ring-4 ring-white ${
                         r.decision === 'approve'
-                          ? 'bg-emerald-500'
+                          ? 'bg-brand-500'
                           : r.decision === 'request_changes' || r.decision === 'reopen'
                             ? 'bg-rose-500'
                             : 'bg-brand-500'
                       }`}
                     />
-                    <p className="text-sm text-slate-900">
+                    <p className="text-sm text-ink-900">
                       <span className="font-medium">{r.actor_label}</span>{' '}
-                      <span className="text-slate-500">
+                      <span className="text-ink-500">
                         moved it {r.from_stage ? STAGE_LABEL[r.from_stage] : 'in'}
                       </span>{' '}
-                      <ArrowRight size={12} className="inline text-slate-400" />{' '}
+                      <ArrowRight size={12} className="inline text-ink-400" />{' '}
                       <span className="font-medium">{STAGE_LABEL[r.to_stage]}</span>
                     </p>
                     {r.comment && (
-                      <p className="mt-1 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                      <p className="mt-1 rounded-lg bg-cream-100 px-3 py-2 text-sm text-ink-700">
                         “{r.comment}”
                       </p>
                     )}
-                    <p className="mt-1 text-xs text-slate-400" title={longDate(r.created_at)}>
+                    <p className="mt-1 text-xs text-ink-400" title={longDate(r.created_at)}>
                       {relativeTime(r.created_at)}
                     </p>
                   </li>

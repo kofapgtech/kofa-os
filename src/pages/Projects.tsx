@@ -69,8 +69,8 @@ export function Projects() {
             <Link key={p.project_id} to={`/projects/${p.project_id}`} className="card p-4 hover:border-brand-300">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-slate-900">{p.name}</p>
-                  <p className="truncate text-xs text-slate-500">
+                  <p className="truncate text-sm font-semibold text-ink-900">{p.name}</p>
+                  <p className="truncate text-xs text-ink-500">
                     {p.account_name} · {p.department_name ?? 'No department'}
                   </p>
                 </div>
@@ -86,24 +86,24 @@ export function Projects() {
 
               <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
                 <div>
-                  <p className="text-slate-500">Hours</p>
-                  <p className="font-semibold tabular-nums text-slate-900">
+                  <p className="text-ink-500">Hours</p>
+                  <p className="font-semibold tabular-nums text-ink-900">
                     {hours(p.total_hours)}
-                    <span className="font-normal text-slate-400"> / {p.budget_hours}h</span>
+                    <span className="font-normal text-ink-400"> / {p.budget_hours}h</span>
                   </p>
                 </div>
                 <div>
-                  <p className="text-slate-500">Spend</p>
-                  <p className="font-semibold tabular-nums text-slate-900">
+                  <p className="text-ink-500">Spend</p>
+                  <p className="font-semibold tabular-nums text-ink-900">
                     {money(p.accrued_amount)}
                     {isLeadership && (
-                      <span className="font-normal text-slate-400"> / {money(p.budget_amount)}</span>
+                      <span className="font-normal text-ink-400"> / {money(p.budget_amount)}</span>
                     )}
                   </p>
                 </div>
                 <div>
-                  <p className="text-slate-500">Due</p>
-                  <p className="font-semibold text-slate-900">{shortDate(p.due_date)}</p>
+                  <p className="text-ink-500">Due</p>
+                  <p className="font-semibold text-ink-900">{shortDate(p.due_date)}</p>
                 </div>
               </div>
 
