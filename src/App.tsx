@@ -13,6 +13,8 @@ import { ProjectDetail } from '@/pages/ProjectDetail'
 import { Deliverables } from '@/pages/Deliverables'
 import { Timesheet } from '@/pages/Timesheet'
 import { Accounts } from '@/pages/Accounts'
+import { Admin } from '@/pages/Admin'
+import { Payroll } from '@/pages/Payroll'
 import { NotificationsPage } from '@/pages/NotificationsPage'
 import { Portal } from '@/pages/Portal'
 
@@ -50,6 +52,8 @@ export default function App() {
               <Route path="/deliverables" element={<Deliverables />} />
               <Route path="/timesheet" element={<Timesheet />} />
               <Route path="/accounts" element={<Accounts />} />
+              <Route path="/admin" element={<Admin />} />
+              <Route path="/payroll" element={<Payroll />} />
               <Route path="/notifications" element={<NotificationsPage />} />
             </Route>
 

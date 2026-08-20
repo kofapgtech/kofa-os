@@ -3,7 +3,10 @@
 // if you want end-to-end inference; these hand-written shapes keep the app
 // readable and cover everything the UI touches.
 
-export type UserRole = 'admin' | 'dept_lead' | 'staff'
+export type UserRole = 'admin' | 'executive' | 'dept_lead' | 'billing_finance' | 'hr_manager' | 'staff'
+export type EmploymentType = 'employee' | 'contractor'
+export type TaskTimeRequestStatus = 'pending' | 'approved' | 'denied'
+export type PayPeriodStatus = 'open' | 'locked' | 'paid'
 export type AccountStatus = 'active' | 'prospect' | 'paused' | 'closed'
 export type ProjectStatus = 'planning' | 'active' | 'on_hold' | 'completed' | 'archived'
 export type TaskStatus = 'todo' | 'in_progress' | 'blocked' | 'in_review' | 'done'
@@ -22,12 +25,36 @@ export type NotificationType =
   | 'deliverable_approved'
   | 'budget_threshold'
   | 'timer_running'
+  | 'time_extension_requested'
+  | 'time_extension_decided'
 
 export interface Department {
   id: string
   org_id: string
   name: string
   color: string
+}
+
+/** A work stream: a named sub-track of work within one specific project. */
+export interface Workstream {
+  id: string
+  org_id: string
+  project_id: string
+  name: string
+  description: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface WorkstreamMember {
+  workstream_id: string
+  profile_id: string
+  /** Coordination authority within this one workstream: can reassign tasks
+   *  and decide time-extension requests on its project. Not a global role. */
+  is_lead: boolean
+  added_by: string | null
+  added_at: string
 }
 
 export interface Profile {
@@ -37,6 +64,9 @@ export interface Profile {
   full_name: string
   email: string
   role: UserRole
+  /** Descriptive only — grants no different permissions than the same `role`
+   *  value would otherwise have. */
+  employment_type: EmploymentType
   title: string | null
   capacity_hours_per_week: number
   avatar_url: string | null
@@ -76,6 +106,9 @@ export interface Task {
   org_id: string
   project_id: string
   parent_task_id: string | null
+  /** Set by nothing in the UI yet — approval-authority checks are scoped to
+   *  the whole project until this is wired up (see task_time_requests). */
+  workstream_id: string | null
   title: string
   description: string | null
   status: TaskStatus
@@ -236,4 +269,32 @@ export interface PortalPayload {
     project_name: string
     approved_at: string | null
   }[]
+}
+
+/** A request to add hours to a task's estimate. Every status change goes
+ *  through the decide_time_extension() RPC — there is no client UPDATE path. */
+export interface TaskTimeRequest {
+  id: string
+  org_id: string
+  task_id: string
+  requested_by: string
+  requested_hours: number
+  reason: string | null
+  status: TaskTimeRequestStatus
+  decided_by: string | null
+  decided_at: string | null
+  created_at: string
+}
+
+export interface PayPeriod {
+  id: string
+  org_id: string
+  period_start: string
+  period_end: string
+  status: PayPeriodStatus
+  locked_at: string | null
+  paid_at: string | null
+  paid_by: string | null
+  notes: string | null
+  created_at: string
 }

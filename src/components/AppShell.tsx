@@ -5,9 +5,11 @@ import {
   CalendarClock,
   FileCheck2,
   Gauge,
+  Landmark,
   ListChecks,
   LogOut,
   Menu,
+  ShieldCheck,
   Wallet,
   X,
 } from 'lucide-react'
@@ -17,21 +19,42 @@ import { Logo } from './Logo'
 import { NotificationBell, NotificationToasts } from './NotificationBell'
 import { Avatar } from './ui'
 
-const NAV = [
+type NavGate = 'leadership' | 'payroll' | 'admin' | null
+
+interface NavItem {
+  to: string
+  label: string
+  icon: typeof ListChecks
+  end?: boolean
+  gate?: NavGate
+}
+
+const NAV: NavItem[] = [
   { to: '/', label: 'My work', icon: ListChecks, end: true },
-  { to: '/command', label: 'Command centre', icon: Gauge, leadershipOnly: true },
+  { to: '/command', label: 'Command centre', icon: Gauge, gate: 'leadership' },
   { to: '/projects', label: 'Projects', icon: Wallet },
   { to: '/deliverables', label: 'Deliverables', icon: FileCheck2 },
   { to: '/timesheet', label: 'Timesheet', icon: CalendarClock },
   { to: '/accounts', label: 'Accounts', icon: Building2 },
+  { to: '/payroll', label: 'Payroll', icon: Landmark, gate: 'payroll' },
+  { to: '/admin', label: 'Admin', icon: ShieldCheck, gate: 'admin' },
 ]
 
 export function AppShell() {
-  const { profile, signOut, isLeadership } = useAuth()
+  const { profile, signOut, isLeadership, isAdmin, isExecutive, isHR, isPayrollAdmin } = useAuth()
   const navigate = useNavigate()
   const [mobileNav, setMobileNav] = useState(false)
 
-  const links = NAV.filter((item) => !item.leadershipOnly || isLeadership)
+  // "Admin" covers three audiences now: full admin/executive access, or
+  // HR's narrower roster-only slice of the same page (see Admin.tsx).
+  const canReachAdmin = isAdmin || isExecutive || isHR
+
+  const links = NAV.filter((item) => {
+    if (item.gate === 'leadership') return isLeadership
+    if (item.gate === 'payroll') return isPayrollAdmin
+    if (item.gate === 'admin') return canReachAdmin
+    return true
+  })
 
   const nav = (
     <nav className="space-y-0.5">

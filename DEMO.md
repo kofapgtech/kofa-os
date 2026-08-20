@@ -34,7 +34,7 @@ and what it's worth?* Follow the loop — **assign → track → deliver → app
   database with no end time, not browser state."
 - Stop it. Note it lands on the timesheet immediately.
 
-## 3. The money moment (90s) — switch to `amara@kofapg.com`
+## 3. The money moment (90s) — switch to `jared@kofapg.com`
 
 This is the centrepiece. Same data, leadership's eyes.
 

@@ -5,7 +5,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { Logo } from '@/components/Logo'
 
 const DEMO_LOGINS = [
-  { label: 'Leadership (admin)', email: 'amara@kofapg.com', note: 'Sees money, capacity, everything' },
+  { label: 'Jared Lewis (admin)', email: 'jared@kofapg.com', note: 'Sees money, capacity, everything' },
   { label: 'Department lead', email: 'nia@kofapg.com', note: 'Studio — reviews deliverables' },
   { label: 'Staff', email: 'jules@kofapg.com', note: 'No rates, no margin' },
 ]

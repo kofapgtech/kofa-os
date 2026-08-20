@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Bell, CheckCheck, CircleDollarSign, FileCheck2, ListChecks, X } from 'lucide-react'
+import { Bell, CheckCheck, CircleDollarSign, FileCheck2, Hourglass, ListChecks, X } from 'lucide-react'
 import { useNotifications } from '@/contexts/NotificationsContext'
 import { relativeTime } from '@/lib/format'
 import type { NotificationType } from '@/lib/types'
@@ -8,6 +8,8 @@ import type { NotificationType } from '@/lib/types'
 function iconFor(type: NotificationType) {
   if (type === 'budget_threshold') return <CircleDollarSign size={16} className="text-amber-600" />
   if (type === 'task_assigned') return <ListChecks size={16} className="text-brand-600" />
+  if (type === 'time_extension_requested' || type === 'time_extension_decided')
+    return <Hourglass size={16} className="text-accent-700" />
   return <FileCheck2 size={16} className="text-brand-600" />
 }
 

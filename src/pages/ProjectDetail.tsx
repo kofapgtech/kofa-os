@@ -42,7 +42,7 @@ type Tab = 'tasks' | 'time' | 'deliverables' | 'budget'
 
 export function ProjectDetail() {
   const { projectId } = useParams()
-  const { isLeadership } = useAuth()
+  const { hasFinancialAccess } = useAuth()
   const [tab, setTab] = useState<Tab>('tasks')
 
   const { data: budget, isLoading } = useProjectBudget(projectId)
@@ -92,8 +92,8 @@ export function ProjectDetail() {
         <StatCard
           label="Spend to date"
           value={money(budget.accrued_amount)}
-          sub={isLeadership ? `of ${money(budget.budget_amount)} budget` : 'Restricted'}
-          icon={isLeadership ? undefined : <Lock size={14} />}
+          sub={hasFinancialAccess ? `of ${money(budget.budget_amount)} budget` : 'Restricted'}
+          icon={hasFinancialAccess ? undefined : <Lock size={14} />}
         />
         <StatCard
           label="Remaining"
@@ -124,7 +124,7 @@ export function ProjectDetail() {
       </div>
 
       <div className="mb-5 card p-4">
-        <BurnBar percent={isLeadership ? budget.pct_amount : budget.pct_hours} />
+        <BurnBar percent={hasFinancialAccess ? budget.pct_amount : budget.pct_hours} />
       </div>
 
       <div className="mb-4 flex gap-1 border-b border-cream-300">
@@ -249,7 +249,7 @@ function DeliverablesTab({
 
 /** Burn-up over time plus a breakdown of where the hours went. */
 function BudgetTab({ projectId }: { projectId: string }) {
-  const { isLeadership } = useAuth()
+  const { hasFinancialAccess } = useAuth()
   const { data: budget } = useProjectBudget(projectId)
   const { data: entries = [] } = useTimeEntries({ projectId })
   const { data: people = [] } = useProfiles()
@@ -284,7 +284,7 @@ function BudgetTab({ projectId }: { projectId: string }) {
 
   return (
     <div className="space-y-4">
-      {!isLeadership && (
+      {!hasFinancialAccess && (
         <p className="flex items-center gap-2 rounded-xl border border-cream-300 bg-cream-100 px-3.5 py-2.5 text-sm text-ink-600">
           <Lock size={15} /> Rates and margin are restricted to leadership. Hours are shown in full.
         </p>

@@ -7,7 +7,7 @@ import { BurnBar, EmptyState, PageHeader, Spinner } from '@/components/ui'
 import { PROJECT_STATUS_CLASS, PROJECT_STATUS_LABEL, hours, money } from '@/lib/format'
 
 export function Accounts() {
-  const { isAdmin, isLeadership } = useAuth()
+  const { isAdminOrExecutive, hasFinancialAccess } = useAuth()
   const { data: accounts = [], isLoading } = useAccounts()
   const { data: projects = [] } = useProjectBudgets()
   const { data: links = [] } = useShareLinks()
@@ -51,7 +51,7 @@ export function Accounts() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  {isLeadership && (
+                  {hasFinancialAccess && (
                     <span className="text-sm text-ink-500">
                       {hours(totalHours)} · {money(totalAccrued)} of {money(totalBudget)}
                     </span>
@@ -67,7 +67,7 @@ export function Accounts() {
                       </a>
                     </>
                   ) : (
-                    isAdmin && (
+                    isAdminOrExecutive && (
                       <button
                         className="btn-primary"
                         disabled={createLink.isPending}
@@ -94,7 +94,7 @@ export function Accounts() {
                       </span>
                     </div>
                     <div className="mt-2.5">
-                      <BurnBar percent={isLeadership ? p.pct_amount : p.pct_hours} />
+                      <BurnBar percent={hasFinancialAccess ? p.pct_amount : p.pct_hours} />
                     </div>
                   </Link>
                 ))}

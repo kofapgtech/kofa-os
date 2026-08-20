@@ -8,9 +8,19 @@ interface AuthContextValue {
   user: User | null
   profile: Profile | null
   loading: boolean
-  /** Leadership: sees money, can act on any project. */
+  /** Operational leadership: Command centre access, acts on any project.
+   *  Does NOT include billing_finance/hr_manager — they get narrower,
+   *  specific grants below rather than this broad one. */
   isLeadership: boolean
   isAdmin: boolean
+  /** Everything admin can do except invite/create/delete a user identity. */
+  isExecutive: boolean
+  isAdminOrExecutive: boolean
+  /** Sees rates, costs, and budget dollar figures wherever they appear —
+   *  a wider set than isLeadership (adds billing_finance). */
+  hasFinancialAccess: boolean
+  isHR: boolean
+  isPayrollAdmin: boolean
   signInWithPassword: (email: string, password: string) => Promise<{ error: string | null }>
   signInWithMagicLink: (email: string) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
@@ -94,8 +104,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user: session?.user ?? null,
     profile,
     loading,
-    isLeadership: profile?.role === 'admin' || profile?.role === 'dept_lead',
+    isLeadership:
+      profile?.role === 'admin' || profile?.role === 'dept_lead' || profile?.role === 'executive',
     isAdmin: profile?.role === 'admin',
+    isExecutive: profile?.role === 'executive',
+    isAdminOrExecutive: profile?.role === 'admin' || profile?.role === 'executive',
+    hasFinancialAccess:
+      profile?.role === 'admin' ||
+      profile?.role === 'dept_lead' ||
+      profile?.role === 'executive' ||
+      profile?.role === 'billing_finance',
+    isHR: profile?.role === 'admin' || profile?.role === 'hr_manager',
+    isPayrollAdmin: profile?.role === 'admin' || profile?.role === 'billing_finance',
     signInWithPassword,
     signInWithMagicLink,
     signOut,

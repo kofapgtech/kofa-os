@@ -1,10 +1,11 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, CheckCircle2, Clock, FileCheck2 } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Clock, FileCheck2, Hourglass } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTimer } from '@/contexts/TimerContext'
 import {
   useDeliverables,
+  usePendingApprovals,
   useProfiles,
   useProjectBudgets,
   useTaskHours,
@@ -23,6 +24,7 @@ export function MyWork() {
   const { data: hoursByTask = {} } = useTaskHours()
   const { data: projects = [] } = useProjectBudgets()
   const { data: deliverables = [] } = useDeliverables()
+  const { data: pendingRequests = [] } = usePendingApprovals()
 
   const weekStart = useMemo(() => {
     const d = new Date()
@@ -54,6 +56,14 @@ export function MyWork() {
       ),
     [deliverables, profile],
   )
+
+  // RLS already scoped this to "my own, or ones I can decide" - excluding my
+  // own here is the only client-side filter needed to get "waiting on me."
+  const myApprovals = useMemo(
+    () => pendingRequests.filter((r) => r.requested_by !== profile?.id),
+    [pendingRequests, profile],
+  )
+  const taskById = useMemo(() => Object.fromEntries(tasks.map((t) => [t.id, t])), [tasks])
 
   const projectName = (id: string) => projects.find((p) => p.project_id === id)?.name ?? ''
   const projectNames = useMemo(
@@ -116,6 +126,38 @@ export function MyWork() {
                 <span className={`chip ${STAGE_CLASS[d.stage]}`}>{STAGE_LABEL[d.stage]}</span>
               </Link>
             ))}
+          </div>
+        </div>
+      )}
+
+      {myApprovals.length > 0 && (
+        <div className="card mb-6 p-4">
+          <p className="mb-3 flex items-center gap-2 text-sm font-semibold text-ink-900">
+            <Hourglass size={15} /> Time requests waiting on you
+          </p>
+          <div className="space-y-2">
+            {myApprovals.map((r) => {
+              const t = taskById[r.task_id]
+              return (
+                <Link
+                  key={r.id}
+                  to={t ? `/projects/${t.project_id}` : '/projects'}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-cream-300 px-3 py-2.5 hover:bg-cream-100"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium text-ink-900">
+                      {t?.title ?? 'A task'}
+                    </span>
+                    <span className="block text-xs text-ink-500">
+                      {t ? projectName(t.project_id) : ''} · {r.reason ?? 'No reason given'}
+                    </span>
+                  </span>
+                  <span className="chip shrink-0 bg-accent-100 text-accent-700">
+                    {hours(r.requested_hours)}
+                  </span>
+                </Link>
+              )
+            })}
           </div>
         </div>
       )}

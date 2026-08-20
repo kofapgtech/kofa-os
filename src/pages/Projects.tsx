@@ -12,7 +12,7 @@ import {
 } from '@/lib/format'
 
 export function Projects() {
-  const { isLeadership } = useAuth()
+  const { hasFinancialAccess } = useAuth()
   const { data: projects = [], isLoading } = useProjectBudgets()
   const { data: departments = [] } = useDepartments()
   const [dept, setDept] = useState('all')
@@ -35,7 +35,7 @@ export function Projects() {
       <PageHeader
         title="Projects"
         subtitle={
-          isLeadership
+          hasFinancialAccess
             ? 'Budget health across every account and department.'
             : 'Hours logged against every active engagement.'
         }
@@ -81,7 +81,7 @@ export function Projects() {
 
               <div className="mt-4">
                 {/* Staff see the hours bar; leadership see the money bar. */}
-                <BurnBar percent={isLeadership ? p.pct_amount : p.pct_hours} />
+                <BurnBar percent={hasFinancialAccess ? p.pct_amount : p.pct_hours} />
               </div>
 
               <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
@@ -96,7 +96,7 @@ export function Projects() {
                   <p className="text-ink-500">Spend</p>
                   <p className="font-semibold tabular-nums text-ink-900">
                     {money(p.accrued_amount)}
-                    {isLeadership && (
+                    {hasFinancialAccess && (
                       <span className="font-normal text-ink-400"> / {money(p.budget_amount)}</span>
                     )}
                   </p>
@@ -108,7 +108,7 @@ export function Projects() {
               </div>
 
               {/* 5% tolerance so rounding noise doesn't cry wolf on healthy projects. */}
-              {isLeadership && p.projected_amount !== null && p.projected_amount > p.budget_amount * 1.05 && (
+              {hasFinancialAccess && p.projected_amount !== null && p.projected_amount > p.budget_amount * 1.05 && (
                 <p className="mt-3 rounded-lg bg-rose-50 px-2.5 py-1.5 text-xs font-medium text-rose-700">
                   Projected {money(p.projected_amount)} at current burn — {money(p.projected_amount - p.budget_amount)} over.
                 </p>

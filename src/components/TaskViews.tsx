@@ -1,5 +1,16 @@
 import { useMemo, useState } from 'react'
-import { CalendarDays, Clock, LayoutGrid, List as ListIcon, Play, Plus, X } from 'lucide-react'
+import {
+  CalendarDays,
+  Check,
+  Clock,
+  Hourglass,
+  LayoutGrid,
+  List as ListIcon,
+  ListPlus,
+  Play,
+  Plus,
+  X,
+} from 'lucide-react'
 import type { Profile, Task, TaskStatus } from '@/lib/types'
 import {
   PRIORITY_CLASS,
@@ -7,12 +18,19 @@ import {
   TASK_STATUS_LABEL,
   TASK_STATUS_ORDER,
   hours,
+  relativeTime,
   shortDate,
 } from '@/lib/format'
-import { useCreateTask, useUpdateTask } from '@/lib/queries'
+import {
+  useCreateTask,
+  useDecideTimeExtension,
+  useRequestTimeExtension,
+  useTaskTimeRequests,
+  useUpdateTask,
+} from '@/lib/queries'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTimer } from '@/contexts/TimerContext'
-import { Avatar, Chip, EmptyState } from './ui'
+import { Avatar, Chip, EmptyState, Spinner } from './ui'
 
 export type TaskViewMode = 'list' | 'board' | 'calendar'
 
@@ -122,8 +140,10 @@ export function TaskViews({ tasks, people, hoursByTask, projectId, projectNames 
         <TaskPanel
           task={selected}
           people={people}
+          allTasks={tasks}
           hoursLogged={hoursByTask[selected.id] ?? 0}
           onClose={() => setSelected(null)}
+          onOpenSubtask={setSelected}
         />
       )}
       {adding && projectId && <NewTaskPanel projectId={projectId} people={people} onClose={() => setAdding(false)} />}
@@ -382,17 +402,27 @@ function Drawer({ title, onClose, children }: { title: string; onClose: () => vo
 function TaskPanel({
   task,
   people,
+  allTasks,
   hoursLogged,
   onClose,
+  onOpenSubtask,
 }: {
   task: Task
   people: Profile[]
+  allTasks: Task[]
   hoursLogged: number
   onClose: () => void
+  onOpenSubtask: (t: Task) => void
 }) {
   const update = useUpdateTask()
   const { start, running } = useTimer()
   const [draft, setDraft] = useState(task)
+  const [addingSubtask, setAddingSubtask] = useState(false)
+
+  const subtasks = useMemo(
+    () => allTasks.filter((t) => t.parent_task_id === task.id),
+    [allTasks, task.id],
+  )
 
   function patch(next: Partial<Task>) {
     setDraft((d) => ({ ...d, ...next }))
@@ -492,17 +522,179 @@ function TaskPanel({
           <Play size={15} /> {running ? 'A timer is already running' : 'Start timer on this task'}
         </button>
       </div>
+
+      <div className="mt-4 rounded-xl border border-cream-300 p-3">
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-sm font-semibold text-ink-900">Subtasks</span>
+          <button className="btn-ghost !min-h-0 !py-1 !px-2 text-xs" onClick={() => setAddingSubtask(true)}>
+            <ListPlus size={13} /> Add subtask
+          </button>
+        </div>
+        {subtasks.length === 0 ? (
+          <p className="text-sm text-ink-500">None yet.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {subtasks.map((st) => (
+              <button
+                key={st.id}
+                onClick={() => onOpenSubtask(st)}
+                className="flex w-full items-center justify-between gap-2 rounded-lg border border-cream-200 px-2.5 py-1.5 text-left hover:bg-cream-100"
+              >
+                <span className="truncate text-sm text-ink-800">{st.title}</span>
+                <span className={`chip shrink-0 ${TASK_STATUS_CLASS[st.status]}`}>
+                  {TASK_STATUS_LABEL[st.status]}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <TimeRequestSection task={task} />
+
+      {addingSubtask && (
+        <NewTaskPanel
+          projectId={task.project_id}
+          people={people}
+          parentTaskId={task.id}
+          onClose={() => setAddingSubtask(false)}
+        />
+      )}
     </Drawer>
+  )
+}
+
+/** Requesting more hours on a task, and — for anyone RLS lets see a pending
+ *  request that isn't their own — deciding it. Read access and decide
+ *  authority share the same expression by design (see decide_time_extension
+ *  and the time_requests_read policy), so "I can see it" already implies
+ *  "I'm allowed to act on it" whenever it isn't mine. */
+function TimeRequestSection({ task }: { task: Task }) {
+  const { profile } = useAuth()
+  const { data: requests = [], isLoading } = useTaskTimeRequests(task.id)
+  const request = useRequestTimeExtension()
+  const decide = useDecideTimeExtension()
+  const [open, setOpen] = useState(false)
+  const [reqHours, setReqHours] = useState('2')
+  const [reason, setReason] = useState('')
+
+  const pending = requests.filter((r) => r.status === 'pending')
+  const decided = requests.filter((r) => r.status !== 'pending')
+
+  return (
+    <div className="mt-4 rounded-xl border border-cream-300 p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="flex items-center gap-2 text-sm font-semibold text-ink-900">
+          <Hourglass size={14} /> Time requests
+        </span>
+        <button className="btn-ghost !min-h-0 !py-1 !px-2 text-xs" onClick={() => setOpen((v) => !v)}>
+          Request more time
+        </button>
+      </div>
+
+      {isLoading ? (
+        <Spinner label="" />
+      ) : requests.length === 0 && !open ? (
+        <p className="text-sm text-ink-500">None yet.</p>
+      ) : (
+        <div className="space-y-2">
+          {pending.map((r) => (
+            <div key={r.id} className="rounded-lg border border-accent-200 bg-accent-50 p-2.5">
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-sm text-ink-800">
+                  <span className="font-semibold">{hours(r.requested_hours)}</span> requested
+                  {r.reason ? ` — ${r.reason}` : ''}
+                </p>
+                <span className="shrink-0 text-xs text-ink-400">{relativeTime(r.created_at)}</span>
+              </div>
+              {r.requested_by !== profile?.id && (
+                <div className="mt-2 flex gap-2">
+                  <button
+                    className="btn-primary !min-h-0 !py-1 !px-2.5 text-xs"
+                    disabled={decide.isPending}
+                    onClick={() => decide.mutate({ requestId: r.id, decision: 'approve' })}
+                  >
+                    <Check size={12} /> Approve
+                  </button>
+                  <button
+                    className="btn-danger !min-h-0 !py-1 !px-2.5 text-xs"
+                    disabled={decide.isPending}
+                    onClick={() => decide.mutate({ requestId: r.id, decision: 'deny' })}
+                  >
+                    Deny
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+          {decided.map((r) => (
+            <div key={r.id} className="flex items-center justify-between gap-2 px-1 text-xs text-ink-500">
+              <span>
+                {hours(r.requested_hours)} — {r.status === 'approved' ? 'Approved' : 'Denied'}
+              </span>
+              <span>{r.decided_at ? relativeTime(r.decided_at) : ''}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {open && (
+        <div className="mt-3 space-y-2 border-t border-cream-200 pt-3">
+          <div>
+            <label className="label">Hours</label>
+            <input
+              className="input"
+              type="number"
+              min="0.5"
+              step="0.5"
+              value={reqHours}
+              onChange={(e) => setReqHours(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="label">Reason</label>
+            <input
+              className="input"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Why do you need more time?"
+            />
+          </div>
+          <button
+            className="btn-primary w-full"
+            disabled={!reqHours || Number(reqHours) <= 0 || request.isPending}
+            onClick={async () => {
+              await request.mutateAsync({
+                org_id: profile!.org_id,
+                task_id: task.id,
+                requested_by: profile!.id,
+                requested_hours: Number(reqHours),
+                reason: reason.trim() || null,
+              })
+              setOpen(false)
+              setReqHours('2')
+              setReason('')
+            }}
+          >
+            Submit request
+          </button>
+          {request.isError && <p className="text-sm text-rose-600">{(request.error as Error).message}</p>}
+        </div>
+      )}
+      {decide.isError && <p className="mt-2 text-sm text-rose-600">{(decide.error as Error).message}</p>}
+    </div>
   )
 }
 
 function NewTaskPanel({
   projectId,
   people,
+  parentTaskId,
   onClose,
 }: {
   projectId: string
   people: Profile[]
+  parentTaskId?: string
   onClose: () => void
 }) {
   const { profile } = useAuth()
@@ -514,7 +706,7 @@ function NewTaskPanel({
   const [priority, setPriority] = useState<Task['priority']>('medium')
 
   return (
-    <Drawer title="New task" onClose={onClose}>
+    <Drawer title={parentTaskId ? 'New subtask' : 'New task'} onClose={onClose}>
       <div className="space-y-3">
         <div>
           <label className="label">Title</label>
@@ -582,6 +774,7 @@ function NewTaskPanel({
               estimated_hours: estimate ? Number(estimate) : null,
               priority,
               created_by: profile!.id,
+              parent_task_id: parentTaskId ?? null,
             })
             onClose()
           }}
