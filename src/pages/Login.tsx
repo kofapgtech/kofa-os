@@ -5,9 +5,12 @@ import { useAuth } from '@/contexts/AuthContext'
 import { Logo } from '@/components/Logo'
 
 const DEMO_LOGINS = [
-  { label: 'Jared Lewis (admin)', email: 'jared@kofapg.com', note: 'Sees money, capacity, everything' },
-  { label: 'Department lead', email: 'nia@kofapg.com', note: 'Studio — reviews deliverables' },
-  { label: 'Staff', email: 'jules@kofapg.com', note: 'No rates, no margin' },
+  { label: 'Jared Lewis — Admin', email: 'jared@kofapg.com', note: 'Sees money, capacity, everything' },
+  { label: 'Jordan Ellis — Executive', email: 'jordan@kofapg.com', note: 'Everything Admin sees, except inviting employees' },
+  { label: 'Talooka — Department lead', email: 'tomas@kofapg.com', note: 'Reviews deliverables, sees money' },
+  { label: 'Adrienne — HR', email: 'priya.hr@kofapg.com', note: 'Invites & manages staff — no money, no accounts' },
+  { label: 'Helema — Billing/Finance', email: 'jules@kofapg.com', note: 'Every rate & budget number, plus Payroll' },
+  { label: 'Elisee Mbaya — Staff', email: 'elisee@kofapg.com', note: 'No rates, no margin' },
 ]
 const DEMO_PASSWORD = 'KofaDemo2026!'
 
