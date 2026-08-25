@@ -1,19 +1,23 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   CalendarDays,
   Check,
+  ChevronDown,
   Clock,
+  Flame,
   Hourglass,
   LayoutGrid,
   List as ListIcon,
   ListPlus,
   Play,
   Plus,
+  Waypoints,
   X,
 } from 'lucide-react'
 import type { Profile, Task, TaskStatus } from '@/lib/types'
 import {
   PRIORITY_CLASS,
+  PRIORITY_OPTION_CLASS,
   TASK_STATUS_CLASS,
   TASK_STATUS_LABEL,
   TASK_STATUS_ORDER,
@@ -22,11 +26,15 @@ import {
   shortDate,
 } from '@/lib/format'
 import {
+  useAllWorkstreams,
   useCreateTask,
   useDecideTimeExtension,
   useRequestTimeExtension,
+  useSetTaskAssignees,
+  useTaskAssignees,
   useTaskTimeRequests,
   useUpdateTask,
+  useWorkstreamMembers,
 } from '@/lib/queries'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTimer } from '@/contexts/TimerContext'
@@ -50,19 +58,29 @@ export function TaskViews({ tasks, people, hoursByTask, projectId, projectNames 
   const [selected, setSelected] = useState<Task | null>(null)
   const [adding, setAdding] = useState(false)
 
+  const { data: taskAssignees = [] } = useTaskAssignees()
+
   const nameById = useMemo(
     () => Object.fromEntries(people.map((p) => [p.id, p.full_name])),
     [people],
   )
+
+  const assigneesByTask = useMemo(() => {
+    const map: Record<string, string[]> = {}
+    taskAssignees.forEach((a) => {
+      ;(map[a.task_id] ||= []).push(a.profile_id)
+    })
+    return map
+  }, [taskAssignees])
 
   const filtered = useMemo(
     () =>
       tasks.filter(
         (t) =>
           (status === 'all' || t.status === status) &&
-          (assignee === 'all' || t.assignee_id === assignee),
+          (assignee === 'all' || (assigneesByTask[t.id] ?? []).includes(assignee)),
       ),
-    [tasks, status, assignee],
+    [tasks, status, assignee, assigneesByTask],
   )
 
   return (
@@ -126,12 +144,13 @@ export function TaskViews({ tasks, people, hoursByTask, projectId, projectNames 
         <ListView
           tasks={filtered}
           nameById={nameById}
+          assigneesByTask={assigneesByTask}
           hoursByTask={hoursByTask}
           projectNames={projectNames}
           onOpen={setSelected}
         />
       ) : mode === 'board' ? (
-        <BoardView tasks={filtered} nameById={nameById} onOpen={setSelected} />
+        <BoardView tasks={filtered} nameById={nameById} assigneesByTask={assigneesByTask} onOpen={setSelected} />
       ) : (
         <CalendarView tasks={filtered} onOpen={setSelected} />
       )}
@@ -141,6 +160,7 @@ export function TaskViews({ tasks, people, hoursByTask, projectId, projectNames 
           task={selected}
           people={people}
           allTasks={tasks}
+          assigneeIds={assigneesByTask[selected.id] ?? []}
           hoursLogged={hoursByTask[selected.id] ?? 0}
           onClose={() => setSelected(null)}
           onOpenSubtask={setSelected}
@@ -151,17 +171,177 @@ export function TaskViews({ tasks, people, hoursByTask, projectId, projectNames 
   )
 }
 
+// -------------------------------------------------------------- assignees
+
+/** Overlapping avatar stack, capped at 3 with a "+N" overflow badge. */
+function AvatarStack({
+  ids,
+  nameById,
+  size = 24,
+}: {
+  ids: string[]
+  nameById: Record<string, string>
+  size?: number
+}) {
+  if (ids.length === 0) return <Avatar name={undefined} size={size} />
+  const shown = ids.slice(0, 3)
+  return (
+    <span className="flex items-center">
+      {shown.map((id, i) => (
+        <span key={id} className={i > 0 ? '-ml-2' : ''}>
+          <Avatar name={nameById[id]} size={size} />
+        </span>
+      ))}
+      {ids.length > shown.length && (
+        <span
+          className="-ml-2 inline-flex items-center justify-center rounded-full bg-cream-300 font-semibold text-ink-600"
+          style={{ width: size, height: size, fontSize: size * 0.34 }}
+        >
+          +{ids.length - shown.length}
+        </span>
+      )}
+    </span>
+  )
+}
+
+/** Table-cell rendering of a task's assignees: stacked avatars + names. */
+function AssigneeCell({ ids, nameById }: { ids: string[]; nameById: Record<string, string> }) {
+  const names = ids.map((id) => nameById[id]).filter(Boolean)
+  return (
+    <span className="flex items-center gap-2">
+      <AvatarStack ids={ids} nameById={nameById} size={24} />
+      <span className="truncate text-sm">{names.length ? names.join(', ') : 'Unassigned'}</span>
+    </span>
+  )
+}
+
+/** Narrows the assignee pool to the chosen workstream's members, so
+ *  assigning routes within the team it was handed to. Anyone already
+ *  selected stays visible/removable even if they're not (or no longer) a
+ *  member, so switching workstreams never silently disappears a pick. */
+function useAssigneePool(people: Profile[], workstreamId: string, selected: string[]) {
+  const { data: members = [] } = useWorkstreamMembers(workstreamId || undefined)
+  if (!workstreamId) return people
+  const memberIds = new Set(members.map((m) => m.profile_id))
+  return people.filter((p) => memberIds.has(p.id) || selected.includes(p.id))
+}
+
+/** Picks which company-wide team (if any) a task is routed to. Setting one
+ *  notifies that workstream's lead(s) to assign it to someone on their team. */
+function WorkstreamSelect({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+  const { data: workstreams = [] } = useAllWorkstreams()
+  return (
+    <div>
+      <label className="label flex items-center gap-1.5">
+        <Waypoints size={13} /> Workstream
+      </label>
+      <select className="input" value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">No workstream — assign directly</option>
+        {workstreams.map((w) => (
+          <option key={w.id} value={w.id}>
+            {w.name}
+          </option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
+/** Combobox-style multi-select: selected people show as removable pills in
+ *  the trigger, with a dropdown list below for adding/removing more. */
+function AssigneePicker({
+  people,
+  selected,
+  onToggle,
+}: {
+  people: Profile[]
+  selected: string[]
+  onToggle: (id: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function onDocMouseDown(e: MouseEvent) {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    return () => document.removeEventListener('mousedown', onDocMouseDown)
+  }, [])
+
+  const selectedPeople = people.filter((p) => selected.includes(p.id))
+
+  return (
+    <div ref={rootRef} className="relative">
+      <div
+        onClick={() => setOpen((v) => !v)}
+        className="input flex min-h-[2.5rem] cursor-pointer flex-wrap items-center gap-1.5"
+      >
+        {selectedPeople.length === 0 ? (
+          <span className="text-ink-400">Unassigned</span>
+        ) : (
+          selectedPeople.map((p) => (
+            <span
+              key={p.id}
+              className="inline-flex items-center gap-1 rounded-full bg-brand-700 py-0.5 pl-2.5 pr-1.5 text-xs font-medium text-white"
+            >
+              {p.full_name}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onToggle(p.id)
+                }}
+                className="rounded-full p-0.5 hover:bg-brand-600"
+              >
+                <X size={11} />
+              </button>
+            </span>
+          ))
+        )}
+        <ChevronDown
+          size={15}
+          className={`ml-auto shrink-0 text-ink-400 transition-transform ${open ? 'rotate-180' : ''}`}
+        />
+      </div>
+
+      {open && (
+        <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-xl border border-cream-300 bg-white py-1 shadow-lg">
+          {people.length === 0 && <p className="px-3 py-1.5 text-sm text-ink-400">No one to assign</p>}
+          {people.map((p) => {
+            const active = selected.includes(p.id)
+            return (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => onToggle(p.id)}
+                className={`block w-full px-3 py-1.5 text-left text-sm hover:bg-cream-100 ${
+                  active ? 'font-semibold text-brand-700' : 'text-ink-700'
+                }`}
+              >
+                {p.full_name}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ------------------------------------------------------------------- views
 
 function ListView({
   tasks,
   nameById,
+  assigneesByTask,
   hoursByTask,
   projectNames,
   onOpen,
 }: {
   tasks: Task[]
   nameById: Record<string, string>
+  assigneesByTask: Record<string, string[]>
   hoursByTask: Record<string, number>
   projectNames?: Record<string, string>
   onOpen: (t: Task) => void
@@ -185,11 +365,13 @@ function ListView({
           <tbody className="divide-y divide-cream-200">
             {tasks.map((t) => {
               const overdue = t.due_date && t.status !== 'done' && new Date(t.due_date) < new Date()
+              const urgent = t.priority === 'urgent'
               return (
-                <tr key={t.id} className="hover:bg-cream-100">
-                  <td className="td">
+                <tr key={t.id} className={`hover:bg-cream-100 ${urgent ? 'bg-rose-50/40' : ''}`}>
+                  <td className={`td ${urgent ? 'border-l-4 border-l-rose-500' : ''}`}>
                     <button className="text-left" onClick={() => onOpen(t)}>
-                      <span className="block font-medium text-ink-900 hover:text-brand-700">
+                      <span className="flex items-center gap-1.5 font-medium text-ink-900 hover:text-brand-700">
+                        {urgent && <Flame size={14} className="shrink-0 text-rose-600" />}
                         {t.title}
                       </span>
                       {projectNames?.[t.project_id] && (
@@ -215,10 +397,7 @@ function ListView({
                     </select>
                   </td>
                   <td className="td">
-                    <span className="flex items-center gap-2">
-                      <Avatar name={nameById[t.assignee_id ?? '']} size={24} />
-                      <span className="text-sm">{nameById[t.assignee_id ?? ''] ?? 'Unassigned'}</span>
-                    </span>
+                    <AssigneeCell ids={assigneesByTask[t.id] ?? []} nameById={nameById} />
                   </td>
                   <td className="td">
                     <Chip className={PRIORITY_CLASS[t.priority]}>{t.priority}</Chip>
@@ -243,10 +422,12 @@ function ListView({
 function BoardView({
   tasks,
   nameById,
+  assigneesByTask,
   onOpen,
 }: {
   tasks: Task[]
   nameById: Record<string, string>
+  assigneesByTask: Record<string, string[]>
   onOpen: (t: Task) => void
 }) {
   const update = useUpdateTask()
@@ -271,24 +452,32 @@ function BoardView({
               <span className="text-xs text-ink-500">{column.length}</span>
             </div>
             <div className="space-y-2">
-              {column.map((t) => (
-                <div
-                  key={t.id}
-                  draggable
-                  onDragStart={() => setDragging(t.id)}
-                  onClick={() => onOpen(t)}
-                  className="cursor-grab rounded-xl border border-cream-300 bg-white p-3 shadow-sm active:cursor-grabbing"
-                >
-                  <p className="text-sm font-medium text-ink-900">{t.title}</p>
-                  <div className="mt-2 flex items-center justify-between gap-2">
-                    <Chip className={PRIORITY_CLASS[t.priority]}>{t.priority}</Chip>
-                    <span className="flex items-center gap-1.5 text-xs text-ink-500">
-                      {shortDate(t.due_date)}
-                      <Avatar name={nameById[t.assignee_id ?? '']} size={20} />
-                    </span>
+              {column.map((t) => {
+                const urgent = t.priority === 'urgent'
+                return (
+                  <div
+                    key={t.id}
+                    draggable
+                    onDragStart={() => setDragging(t.id)}
+                    onClick={() => onOpen(t)}
+                    className={`cursor-grab rounded-xl border bg-white p-3 shadow-sm active:cursor-grabbing ${
+                      urgent ? 'border-rose-200 border-l-4 border-l-rose-500 bg-rose-50/40' : 'border-cream-300'
+                    }`}
+                  >
+                    <p className="flex items-center gap-1.5 text-sm font-medium text-ink-900">
+                      {urgent && <Flame size={13} className="shrink-0 text-rose-600" />}
+                      {t.title}
+                    </p>
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <Chip className={PRIORITY_CLASS[t.priority]}>{t.priority}</Chip>
+                      <span className="flex items-center gap-1.5 text-xs text-ink-500">
+                        {shortDate(t.due_date)}
+                        <AvatarStack ids={assigneesByTask[t.id] ?? []} nameById={nameById} size={20} />
+                      </span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         )
@@ -403,6 +592,7 @@ function TaskPanel({
   task,
   people,
   allTasks,
+  assigneeIds,
   hoursLogged,
   onClose,
   onOpenSubtask,
@@ -410,11 +600,14 @@ function TaskPanel({
   task: Task
   people: Profile[]
   allTasks: Task[]
+  assigneeIds: string[]
   hoursLogged: number
   onClose: () => void
   onOpenSubtask: (t: Task) => void
 }) {
   const update = useUpdateTask()
+  const setAssignees = useSetTaskAssignees()
+  const { profile } = useAuth()
   const { start, running } = useTimer()
   const [draft, setDraft] = useState(task)
   const [addingSubtask, setAddingSubtask] = useState(false)
@@ -424,13 +617,25 @@ function TaskPanel({
     [allTasks, task.id],
   )
 
+  const assigneePool = useAssigneePool(people, draft.workstream_id ?? '', assigneeIds)
+
   function patch(next: Partial<Task>) {
     setDraft((d) => ({ ...d, ...next }))
     update.mutate({ id: task.id, patch: next })
   }
 
+  function toggleAssignee(id: string) {
+    const next = assigneeIds.includes(id) ? assigneeIds.filter((a) => a !== id) : [...assigneeIds, id]
+    setAssignees.mutate({ task_id: task.id, profile_ids: next, org_id: task.org_id, added_by: profile!.id })
+  }
+
   return (
     <Drawer title="Task" onClose={onClose}>
+      {draft.priority === 'urgent' && (
+        <div className="mb-3 flex items-center gap-1.5 rounded-lg bg-rose-50 px-2.5 py-1.5 text-xs font-semibold text-rose-700">
+          <Flame size={13} /> Urgent — needs attention
+        </div>
+      )}
       <input
         className="input mb-4 !text-base !font-semibold"
         value={draft.title}
@@ -456,28 +661,13 @@ function TaskPanel({
         <div>
           <label className="label">Priority</label>
           <select
-            className="input"
+            className={`input font-medium ${PRIORITY_CLASS[draft.priority]}`}
             value={draft.priority}
             onChange={(e) => patch({ priority: e.target.value as Task['priority'] })}
           >
-            {['low', 'medium', 'high', 'urgent'].map((p) => (
-              <option key={p} value={p}>
+            {(['low', 'medium', 'high', 'urgent'] as const).map((p) => (
+              <option key={p} value={p} className={PRIORITY_OPTION_CLASS[p]}>
                 {p}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="label">Assignee</label>
-          <select
-            className="input"
-            value={draft.assignee_id ?? ''}
-            onChange={(e) => patch({ assignee_id: e.target.value || null })}
-          >
-            <option value="">Unassigned</option>
-            {people.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.full_name}
               </option>
             ))}
           </select>
@@ -491,6 +681,18 @@ function TaskPanel({
             onChange={(e) => patch({ due_date: e.target.value || null })}
           />
         </div>
+      </div>
+
+      <div className="mt-3">
+        <WorkstreamSelect
+          value={draft.workstream_id ?? ''}
+          onChange={(id) => patch({ workstream_id: id || null })}
+        />
+      </div>
+
+      <div className="mt-3">
+        <label className="label">Assignees</label>
+        <AssigneePicker people={assigneePool} selected={assigneeIds} onToggle={toggleAssignee} />
       </div>
 
       <div className="mt-4">
@@ -678,10 +880,8 @@ function TimeRequestSection({ task }: { task: Task }) {
           >
             Submit request
           </button>
-          {request.isError && <p className="text-sm text-rose-600">{(request.error as Error).message}</p>}
         </div>
       )}
-      {decide.isError && <p className="mt-2 text-sm text-rose-600">{(decide.error as Error).message}</p>}
     </div>
   )
 }
@@ -700,10 +900,18 @@ function NewTaskPanel({
   const { profile } = useAuth()
   const create = useCreateTask()
   const [title, setTitle] = useState('')
-  const [assignee, setAssignee] = useState('')
+  const [assigneeIds, setAssigneeIds] = useState<string[]>([])
+  const [workstreamId, setWorkstreamId] = useState('')
   const [due, setDue] = useState('')
   const [estimate, setEstimate] = useState('')
   const [priority, setPriority] = useState<Task['priority']>('medium')
+  const [note, setNote] = useState('')
+
+  const assigneePool = useAssigneePool(people, workstreamId, assigneeIds)
+
+  function toggleAssignee(id: string) {
+    setAssigneeIds((ids) => (ids.includes(id) ? ids.filter((a) => a !== id) : [...ids, id]))
+  }
 
   return (
     <Drawer title={parentTaskId ? 'New subtask' : 'New task'} onClose={onClose}>
@@ -718,27 +926,34 @@ function NewTaskPanel({
             autoFocus
           />
         </div>
+        <div>
+          <WorkstreamSelect
+            value={workstreamId}
+            onChange={(id) => {
+              setWorkstreamId(id)
+              setAssigneeIds([])
+            }}
+          />
+          {workstreamId && (
+            <p className="mt-1 text-xs text-ink-500">
+              Leave assignees blank to let the workstream's lead pick who on their team does it.
+            </p>
+          )}
+        </div>
+        <div>
+          <label className="label">Assignees</label>
+          <AssigneePicker people={assigneePool} selected={assigneeIds} onToggle={toggleAssignee} />
+        </div>
         <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="label">Assignee</label>
-            <select className="input" value={assignee} onChange={(e) => setAssignee(e.target.value)}>
-              <option value="">Unassigned</option>
-              {people.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.full_name}
-                </option>
-              ))}
-            </select>
-          </div>
           <div>
             <label className="label">Priority</label>
             <select
-              className="input"
+              className={`input font-medium ${PRIORITY_CLASS[priority]}`}
               value={priority}
               onChange={(e) => setPriority(e.target.value as Task['priority'])}
             >
-              {['low', 'medium', 'high', 'urgent'].map((p) => (
-                <option key={p} value={p}>
+              {(['low', 'medium', 'high', 'urgent'] as const).map((p) => (
+                <option key={p} value={p} className={PRIORITY_OPTION_CLASS[p]}>
                   {p}
                 </option>
               ))}
@@ -760,6 +975,15 @@ function NewTaskPanel({
             />
           </div>
         </div>
+        <div>
+          <label className="label">Note</label>
+          <textarea
+            className="input min-h-[80px]"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Context, links, acceptance criteria…"
+          />
+        </div>
 
         <button
           className="btn-primary w-full"
@@ -769,7 +993,9 @@ function NewTaskPanel({
               org_id: profile!.org_id,
               project_id: projectId,
               title: title.trim(),
-              assignee_id: assignee || null,
+              description: note.trim() || null,
+              assignee_ids: assigneeIds,
+              workstream_id: workstreamId || null,
               due_date: due || null,
               estimated_hours: estimate ? Number(estimate) : null,
               priority,
@@ -781,9 +1007,6 @@ function NewTaskPanel({
         >
           <Plus size={16} /> Create task
         </button>
-        {create.isError && (
-          <p className="text-sm text-rose-600">{(create.error as Error).message}</p>
-        )}
       </div>
     </Drawer>
   )

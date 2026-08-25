@@ -16,10 +16,10 @@ import {
 import { useAuth } from '@/contexts/AuthContext'
 import { GlobalTimer } from './GlobalTimer'
 import { Logo } from './Logo'
-import { NotificationBell, NotificationToasts } from './NotificationBell'
+import { NotificationBell } from './NotificationBell'
 import { Avatar } from './ui'
 
-type NavGate = 'leadership' | 'payroll' | 'admin' | null
+type NavGate = 'leadership' | 'payroll' | 'admin' | 'admin-full' | null
 
 interface NavItem {
   to: string
@@ -27,6 +27,7 @@ interface NavItem {
   icon: typeof ListChecks
   end?: boolean
   gate?: NavGate
+  children?: { to: string; label: string; gate?: NavGate }[]
 }
 
 const NAV: NavItem[] = [
@@ -36,44 +37,95 @@ const NAV: NavItem[] = [
   { to: '/deliverables', label: 'Deliverables', icon: FileCheck2 },
   { to: '/timesheet', label: 'Timesheet', icon: CalendarClock },
   { to: '/accounts', label: 'Accounts', icon: Building2 },
-  { to: '/payroll', label: 'Payroll', icon: Landmark, gate: 'payroll' },
-  { to: '/admin', label: 'Admin', icon: ShieldCheck, gate: 'admin' },
+  {
+    to: '/payroll',
+    label: 'Payroll',
+    icon: Landmark,
+    gate: 'payroll',
+    children: [
+      { to: '/payroll/payment', label: 'Payment' },
+      { to: '/payroll/records', label: 'Records' },
+    ],
+  },
+  {
+    to: '/admin',
+    label: 'Admin',
+    icon: ShieldCheck,
+    gate: 'admin',
+    children: [
+      { to: '/admin/employees', label: 'Employees' },
+      { to: '/admin/workstreams', label: 'Workstreams', gate: 'admin-full' },
+    ],
+  },
 ]
 
 export function AppShell() {
-  const { profile, signOut, isLeadership, isAdmin, isExecutive, isHR, isPayrollAdmin } = useAuth()
+  const { profile, signOut, isLeadership, isAdmin, isAdminOrExecutive, isExecutive, isHR, isPayrollAdmin } =
+    useAuth()
   const navigate = useNavigate()
   const [mobileNav, setMobileNav] = useState(false)
 
   // "Admin" covers three audiences now: full admin/executive access, or
-  // HR's narrower roster-only slice of the same page (see Admin.tsx).
+  // HR's narrower roster-only slice of the same section (see
+  // AdminEmployees.tsx). Workstreams is admin/executive only.
   const canReachAdmin = isAdmin || isExecutive || isHR
 
-  const links = NAV.filter((item) => {
-    if (item.gate === 'leadership') return isLeadership
-    if (item.gate === 'payroll') return isPayrollAdmin
-    if (item.gate === 'admin') return canReachAdmin
+  function passesGate(gate: NavGate) {
+    if (gate === 'leadership') return isLeadership
+    if (gate === 'payroll') return isPayrollAdmin
+    if (gate === 'admin') return canReachAdmin
+    if (gate === 'admin-full') return isAdminOrExecutive
     return true
-  })
+  }
+
+  const links = NAV.filter((item) => passesGate(item.gate ?? null))
+    .map((item) =>
+      item.children ? { ...item, children: item.children.filter((c) => passesGate(c.gate ?? null)) } : item,
+    )
 
   const nav = (
     <nav className="space-y-0.5">
-      {links.map(({ to, label, icon: Icon, end }) => (
-        <NavLink
-          key={to}
-          to={to}
-          end={end}
-          onClick={() => setMobileNav(false)}
-          className={({ isActive }) =>
-            `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
-              isActive ? 'bg-brand-600 text-white' : 'text-ink-600 hover:bg-cream-200'
-            }`
-          }
-        >
-          <Icon size={17} />
-          {label}
-        </NavLink>
-      ))}
+      {links.map(({ to, label, icon: Icon, end, children }) =>
+        children ? (
+          <div key={to} className="pt-1">
+            <p className="flex items-center gap-3 px-3 py-2 text-sm font-medium text-ink-500">
+              <Icon size={17} />
+              {label}
+            </p>
+            <div className="ml-4 space-y-0.5 border-l border-cream-300 pl-3">
+              {children.map((child) => (
+                <NavLink
+                  key={child.to}
+                  to={child.to}
+                  onClick={() => setMobileNav(false)}
+                  className={({ isActive }) =>
+                    `block rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                      isActive ? 'bg-brand-600 text-white' : 'text-ink-600 hover:bg-cream-200'
+                    }`
+                  }
+                >
+                  {child.label}
+                </NavLink>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <NavLink
+            key={to}
+            to={to}
+            end={end}
+            onClick={() => setMobileNav(false)}
+            className={({ isActive }) =>
+              `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
+                isActive ? 'bg-brand-600 text-white' : 'text-ink-600 hover:bg-cream-200'
+              }`
+            }
+          >
+            <Icon size={17} />
+            {label}
+          </NavLink>
+        ),
+      )}
     </nav>
   )
 
@@ -137,8 +189,6 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
-
-      <NotificationToasts />
     </div>
   )
 }

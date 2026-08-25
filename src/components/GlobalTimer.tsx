@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Play, Square, Timer as TimerIcon } from 'lucide-react'
 import { useTimer } from '@/contexts/TimerContext'
-import { useProjectBudgets, useTasks } from '@/lib/queries'
+import { useProjectBudgets, useTaskAssignees, useTasks } from '@/lib/queries'
 import { useAuth } from '@/contexts/AuthContext'
 
 function clock(seconds: number) {
@@ -16,6 +16,7 @@ export function GlobalTimer() {
   const { running, elapsedSeconds, start, stop, busy } = useTimer()
   const { data: projects = [] } = useProjectBudgets()
   const { data: tasks = [] } = useTasks()
+  const { data: taskAssignees = [] } = useTaskAssignees()
   const [open, setOpen] = useState(false)
   const [projectId, setProjectId] = useState('')
   const [taskId, setTaskId] = useState('')
@@ -31,9 +32,13 @@ export function GlobalTimer() {
   )
 
   // Default the picker to something the person is actually assigned to.
+  const myTaskIds = useMemo(
+    () => new Set(taskAssignees.filter((a) => a.profile_id === profile?.id).map((a) => a.task_id)),
+    [taskAssignees, profile],
+  )
   const myTasks = useMemo(
-    () => tasks.filter((t) => t.assignee_id === profile?.id && t.status !== 'done'),
-    [tasks, profile],
+    () => tasks.filter((t) => myTaskIds.has(t.id) && t.status !== 'done'),
+    [tasks, myTaskIds],
   )
   const projectTasks = useMemo(
     () => tasks.filter((t) => t.project_id === projectId && t.status !== 'done'),

@@ -1,4 +1,4 @@
-import type { DeliverableStage, ProjectStatus, TaskPriority, TaskStatus } from './types'
+import type { AccountStatus, DeliverableStage, ProjectStatus, TaskPriority, TaskStatus } from './types'
 
 const currency = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -101,6 +101,17 @@ export const PRIORITY_CLASS: Record<TaskPriority, string> = {
   urgent: 'bg-rose-100 text-rose-700',
 }
 
+/** Plain text-color version of PRIORITY_CLASS, for use inside <option>
+ *  elements where a background utility won't reliably render. */
+export const PRIORITY_OPTION_CLASS: Record<TaskPriority, string> = {
+  low: 'text-ink-500',
+  medium: 'text-sky-700',
+  high: 'text-orange-700',
+  urgent: 'text-rose-700 font-semibold',
+}
+
+export const PROJECT_STATUS: ProjectStatus[] = ['planning', 'active', 'on_hold', 'completed', 'archived']
+
 export const PROJECT_STATUS_CLASS: Record<ProjectStatus, string> = {
   planning: 'bg-cream-200 text-ink-600',
   active: 'bg-brand-100 text-brand-700',
@@ -115,6 +126,15 @@ export const PROJECT_STATUS_LABEL: Record<ProjectStatus, string> = {
   on_hold: 'On hold',
   completed: 'Completed',
   archived: 'Archived',
+}
+
+export const ACCOUNT_STATUS: AccountStatus[] = ['prospect', 'active', 'paused', 'closed']
+
+export const ACCOUNT_STATUS_LABEL: Record<AccountStatus, string> = {
+  prospect: 'Prospect',
+  active: 'Active',
+  paused: 'Paused',
+  closed: 'Closed',
 }
 
 export const STAGE_LABEL: Record<DeliverableStage, string> = {

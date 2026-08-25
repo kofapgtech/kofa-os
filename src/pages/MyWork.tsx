@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, CheckCircle2, Clock, FileCheck2, Hourglass } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Clock, FileCheck2, Hourglass, Waypoints } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTimer } from '@/contexts/TimerContext'
 import {
@@ -8,9 +8,11 @@ import {
   usePendingApprovals,
   useProfiles,
   useProjectBudgets,
+  useTaskAssignees,
   useTaskHours,
   useTasks,
   useTimeEntries,
+  useWorkstreamLeadMap,
 } from '@/lib/queries'
 import { TaskViews } from '@/components/TaskViews'
 import { EmptyState, PageHeader, Spinner, StatCard } from '@/components/ui'
@@ -20,11 +22,13 @@ export function MyWork() {
   const { profile } = useAuth()
   const { running } = useTimer()
   const { data: tasks = [], isLoading } = useTasks()
+  const { data: taskAssignees = [] } = useTaskAssignees()
   const { data: people = [] } = useProfiles()
   const { data: hoursByTask = {} } = useTaskHours()
   const { data: projects = [] } = useProjectBudgets()
   const { data: deliverables = [] } = useDeliverables()
   const { data: pendingRequests = [] } = usePendingApprovals()
+  const { data: leadMap } = useWorkstreamLeadMap()
 
   const weekStart = useMemo(() => {
     const d = new Date()
@@ -36,9 +40,13 @@ export function MyWork() {
 
   const { data: myWeek = [] } = useTimeEntries({ userId: profile?.id, since: weekStart })
 
+  const myTaskIds = useMemo(
+    () => new Set(taskAssignees.filter((a) => a.profile_id === profile?.id).map((a) => a.task_id)),
+    [taskAssignees, profile],
+  )
   const myTasks = useMemo(
-    () => tasks.filter((t) => t.assignee_id === profile?.id),
-    [tasks, profile],
+    () => tasks.filter((t) => myTaskIds.has(t.id)),
+    [tasks, myTaskIds],
   )
   const openTasks = myTasks.filter((t) => t.status !== 'done')
   const overdue = openTasks.filter((t) => t.due_date && new Date(t.due_date) < new Date())
@@ -64,6 +72,20 @@ export function MyWork() {
     [pendingRequests, profile],
   )
   const taskById = useMemo(() => Object.fromEntries(tasks.map((t) => [t.id, t])), [tasks])
+
+  // Tasks routed to the workstream I lead, still with nobody assigned —
+  // mine to staff. A profile leads at most one workstream (DB-enforced).
+  const myLeadWorkstreamId = profile ? leadMap?.get(profile.id)?.workstreamId : undefined
+  const assignedTaskIds = useMemo(() => new Set(taskAssignees.map((a) => a.task_id)), [taskAssignees])
+  const myWorkstreamQueue = useMemo(
+    () =>
+      myLeadWorkstreamId
+        ? tasks.filter(
+            (t) => t.workstream_id === myLeadWorkstreamId && t.status !== 'done' && !assignedTaskIds.has(t.id),
+          )
+        : [],
+    [tasks, myLeadWorkstreamId, assignedTaskIds],
+  )
 
   const projectName = (id: string) => projects.find((p) => p.project_id === id)?.name ?? ''
   const projectNames = useMemo(
@@ -158,6 +180,31 @@ export function MyWork() {
                 </Link>
               )
             })}
+          </div>
+        </div>
+      )}
+
+      {myWorkstreamQueue.length > 0 && (
+        <div className="card mb-6 p-4">
+          <p className="mb-3 flex items-center gap-2 text-sm font-semibold text-ink-900">
+            <Waypoints size={15} /> Tasks waiting for you to staff
+          </p>
+          <div className="space-y-2">
+            {myWorkstreamQueue.map((t) => (
+              <Link
+                key={t.id}
+                to={`/projects/${t.project_id}`}
+                className="flex items-center justify-between gap-3 rounded-xl border border-cream-300 px-3 py-2.5 hover:bg-cream-100"
+              >
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium text-ink-900">{t.title}</span>
+                  <span className="block text-xs text-ink-500">
+                    {projectName(t.project_id)} · due {shortDate(t.due_date)}
+                  </span>
+                </span>
+                <span className="chip shrink-0 bg-cream-200 text-ink-500">Unassigned</span>
+              </Link>
+            ))}
           </div>
         </div>
       )}

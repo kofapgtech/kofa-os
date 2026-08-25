@@ -1,5 +1,21 @@
 import type { ReactNode } from 'react'
+import { X } from 'lucide-react'
 import { burnTone, initials } from '@/lib/format'
+
+/** Standard header row for a Modal: icon + title + close button. */
+export function ModalHeader({ title, icon, onClose }: { title: string; icon: ReactNode; onClose: () => void }) {
+  return (
+    <div className="mb-4 flex items-start justify-between print:hidden">
+      <div className="flex items-center gap-2">
+        {icon}
+        <p className="text-sm font-semibold text-ink-900">{title}</p>
+      </div>
+      <button className="btn-ghost !px-2.5" onClick={onClose}>
+        <X size={16} />
+      </button>
+    </div>
+  )
+}
 
 export function Chip({ className = '', children }: { className?: string; children: ReactNode }) {
   return <span className={`chip ${className}`}>{children}</span>
@@ -67,6 +83,25 @@ export function BurnBar({ percent, showLabel = true }: { percent: number | null;
           {percent === null ? 'Restricted' : `${Math.round(percent)}% · ${tone.label}`}
         </p>
       )}
+    </div>
+  )
+}
+
+/** Shared overlay shell for modal dialogs: backdrop + centered card, with
+ *  print-friendly classes so a caller can offer a "print this" action. */
+export function Modal({
+  onClose,
+  children,
+  className = 'max-w-lg',
+}: {
+  onClose: () => void
+  children: ReactNode
+  className?: string
+}) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center p-4 print:static print:block print:p-0">
+      <div className="absolute inset-0 bg-brand-800/30 print:hidden" onClick={onClose} />
+      <div className={`card relative w-full p-5 print:border-0 print:shadow-none ${className}`}>{children}</div>
     </div>
   )
 }

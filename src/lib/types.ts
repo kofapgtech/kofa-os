@@ -27,6 +27,7 @@ export type NotificationType =
   | 'timer_running'
   | 'time_extension_requested'
   | 'time_extension_decided'
+  | 'workstream_task_assigned'
 
 export interface Department {
   id: string
@@ -35,11 +36,11 @@ export interface Department {
   color: string
 }
 
-/** A work stream: a named sub-track of work within one specific project. */
+/** A work stream: a company-wide team. Tasks (not workstreams) carry the
+ *  project link — a workstream can pick up work from any project. */
 export interface Workstream {
   id: string
   org_id: string
-  project_id: string
   name: string
   description: string | null
   created_by: string | null
@@ -47,11 +48,17 @@ export interface Workstream {
   updated_at: string
 }
 
+export interface WorkstreamWithCount extends Workstream {
+  member_count: number
+}
+
 export interface WorkstreamMember {
   workstream_id: string
   profile_id: string
   /** Coordination authority within this one workstream: can reassign tasks
-   *  and decide time-extension requests on its project. Not a global role. */
+   *  routed to it and decide time-extension requests on them. A profile can
+   *  be a member of many workstreams but is_lead on at most one (enforced by
+   *  a DB constraint). Not a global role. */
   is_lead: boolean
   added_by: string | null
   added_at: string
@@ -71,6 +78,20 @@ export interface Profile {
   capacity_hours_per_week: number
   avatar_url: string | null
   is_active: boolean
+  termination_date: string | null
+  termination_reason: string | null
+  last_day_worked: string | null
+  rehire_eligible: boolean | null
+}
+
+export interface ProfileRate {
+  profile_id: string
+  org_id: string
+  /** Charged to the client — drives project margin/budget. Finance-owned. */
+  bill_rate: number
+  /** What the person costs the company — HR-owned, tied to pay. */
+  cost_rate: number
+  updated_at: string
 }
 
 export interface Account {
@@ -106,13 +127,18 @@ export interface Task {
   org_id: string
   project_id: string
   parent_task_id: string | null
-  /** Set by nothing in the UI yet — approval-authority checks are scoped to
-   *  the whole project until this is wired up (see task_time_requests). */
+  /** Routes the task to a company-wide team rather than a specific person.
+   *  Setting this notifies the workstream's lead(s), who then pick a member
+   *  to actually assign it to (via task_assignees). Also gates who beyond
+   *  the creator/assignee can update the task and decide its time-extension
+   *  requests — see the workstream-lead clauses on tasks/task_time_requests. */
   workstream_id: string | null
   title: string
   description: string | null
   status: TaskStatus
   priority: TaskPriority
+  /** Legacy single-assignee column — superseded by task_assignees. Nothing
+   *  in the app writes to it any more; kept only for old rows/back-compat. */
   assignee_id: string | null
   due_date: string | null
   estimated_hours: number | null
@@ -120,6 +146,15 @@ export interface Task {
   created_by: string | null
   completed_at: string | null
   created_at: string
+}
+
+/** One row of the task_assignees join table — a task can have many. */
+export interface TaskAssignee {
+  task_id: string
+  profile_id: string
+  org_id: string
+  added_by: string | null
+  added_at: string
 }
 
 export interface TimeEntry {
@@ -297,4 +332,46 @@ export interface PayPeriod {
   paid_by: string | null
   notes: string | null
   created_at: string
+}
+
+/** One employee's payout for one pay period. Bookkeeping only for now —
+ *  the actual money movement happens outside the app (Deel), see
+ *  usePayEmployee(). */
+export interface PayrollPayment {
+  id: string
+  org_id: string
+  pay_period_id: string
+  profile_id: string
+  amount: number
+  paid_at: string
+  paid_by: string | null
+  notes: string | null
+  deel_reference: string | null
+  created_at: string
+}
+
+/** A payroll_payments row with the employee name and period dates embedded,
+ *  as returned by usePayrollPayments() for the Records page. */
+export interface PayrollPaymentRow extends PayrollPayment {
+  profile: { full_name: string } | null
+  pay_period: { period_start: string; period_end: string } | null
+}
+
+/** One raw billable line for a pay period: one employee on one project.
+ *  The Payment page groups these by employee and by project client-side. */
+export interface PayrollEntry {
+  profile_id: string
+  profile_name: string
+  project_id: string
+  project_name: string
+  hours: number
+  amount: number
+}
+
+/** A grouped row (by employee, or by project) with summed hours/amount. */
+export interface PayrollLineItem {
+  id: string
+  name: string
+  hours: number
+  amount: number
 }

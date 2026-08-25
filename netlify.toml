@@ -2,6 +2,12 @@
   command = "npm run build"
   publish = "dist"
 
+[build.environment]
+  # The Supabase project URL is not secret (it ships client-side via
+  # VITE_SUPABASE_URL), but it literally matches that env var's value, so
+  # Netlify's secrets scanner flags it wherever it appears in migration SQL.
+  SECRETS_SCAN_OMIT_PATHS = "supabase/migrations/**"
+
 # Client-side routing: without this, a hard refresh on /projects/:id or
 # /portal/:token returns a 404 from Netlify instead of reaching the router.
 [[redirects]]

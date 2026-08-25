@@ -1,17 +1,9 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Bell, CheckCheck, CircleDollarSign, FileCheck2, Hourglass, ListChecks, X } from 'lucide-react'
+import { Bell, CheckCheck, X } from 'lucide-react'
 import { useNotifications } from '@/contexts/NotificationsContext'
+import { iconForNotification } from '@/lib/notificationIcons'
 import { relativeTime } from '@/lib/format'
-import type { NotificationType } from '@/lib/types'
-
-function iconFor(type: NotificationType) {
-  if (type === 'budget_threshold') return <CircleDollarSign size={16} className="text-amber-600" />
-  if (type === 'task_assigned') return <ListChecks size={16} className="text-brand-600" />
-  if (type === 'time_extension_requested' || type === 'time_extension_decided')
-    return <Hourglass size={16} className="text-accent-700" />
-  return <FileCheck2 size={16} className="text-brand-600" />
-}
 
 export function NotificationBell() {
   const { items, unread, markRead, markAllRead } = useNotifications()
@@ -57,7 +49,7 @@ export function NotificationBell() {
                   n.read_at ? '' : 'bg-brand-50/40'
                 }`}
               >
-                <span className="mt-0.5">{iconFor(n.type)}</span>
+                <span className="mt-0.5">{iconForNotification(n.type)}</span>
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm font-medium text-ink-900">{n.title}</span>
                   {n.body && <span className="block text-xs text-ink-500">{n.body}</span>}
@@ -79,32 +71,6 @@ export function NotificationBell() {
           </Link>
         </div>
       )}
-    </div>
-  )
-}
-
-/** Live toasts, driven by the Supabase Realtime subscription. */
-export function NotificationToasts() {
-  const { toasts, dismissToast } = useNotifications()
-  if (toasts.length === 0) return null
-
-  return (
-    <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-[min(360px,calc(100vw-2rem))] flex-col gap-2">
-      {toasts.map((t) => (
-        <div
-          key={t.id}
-          className="pointer-events-auto card flex gap-3 p-3.5 shadow-lg ring-1 ring-ink-900/5 animate-[fadeIn_.2s_ease-out]"
-        >
-          <span className="mt-0.5">{iconFor(t.type)}</span>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-ink-900">{t.title}</p>
-            {t.body && <p className="text-xs text-ink-600">{t.body}</p>}
-          </div>
-          <button className="text-ink-400 hover:text-ink-600" onClick={() => dismissToast(t.id)}>
-            <X size={15} />
-          </button>
-        </div>
-      ))}
     </div>
   )
 }

@@ -1,14 +1,13 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { supabase } from '@/lib/supabaseClient'
+import { iconForNotification } from '@/lib/notificationIcons'
 import type { AppNotification } from '@/lib/types'
 import { useAuth } from './AuthContext'
+import { useToast } from './ToastContext'
 
 interface NotificationsContextValue {
   items: AppNotification[]
   unread: number
-  /** Newly arrived items, shown as toasts and dismissed on a timer. */
-  toasts: AppNotification[]
-  dismissToast: (id: string) => void
   markRead: (id: string) => Promise<void>
   markAllRead: () => Promise<void>
 }
@@ -17,8 +16,8 @@ const NotificationsContext = createContext<NotificationsContextValue | undefined
 
 export function NotificationsProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth()
+  const toast = useToast()
   const [items, setItems] = useState<AppNotification[]>([])
-  const [toasts, setToasts] = useState<AppNotification[]>([])
 
   useEffect(() => {
     if (!user) {
@@ -38,7 +37,9 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     }
     void load()
 
-    // Realtime is what makes a budget alert land on screen mid-demo.
+    // Realtime is what makes a budget alert land on screen mid-demo. Fed
+    // into the shared toast stack (see ToastContext), so it appears
+    // alongside — not competing with — action-feedback toasts.
     const channel = supabase
       .channel('notifications-feed')
       .on(
@@ -52,11 +53,13 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         (payload) => {
           const row = payload.new as AppNotification
           setItems((prev) => [row, ...prev])
-          setToasts((prev) => [...prev, row])
-          window.setTimeout(
-            () => setToasts((prev) => prev.filter((t) => t.id !== row.id)),
-            7000,
-          )
+          toast.push({
+            variant: 'info',
+            title: row.title,
+            body: row.body ?? undefined,
+            icon: iconForNotification(row.type),
+            duration: 7000,
+          })
         },
       )
       .subscribe()
@@ -65,6 +68,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       cancelled = true
       void supabase.removeChannel(channel)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user])
 
   async function markRead(id: string) {
@@ -82,8 +86,6 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   const value: NotificationsContextValue = {
     items,
     unread: items.filter((n) => !n.read_at).length,
-    toasts,
-    dismissToast: (id) => setToasts((prev) => prev.filter((t) => t.id !== id)),
     markRead,
     markAllRead,
   }

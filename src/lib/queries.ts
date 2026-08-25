@@ -1,4 +1,6 @@
+import { useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useToast } from '@/contexts/ToastContext'
 import { supabase } from './supabaseClient'
 import type {
   Account,
@@ -9,16 +11,23 @@ import type {
   Department,
   DepartmentLoad,
   PayPeriod,
+  PayrollEntry,
+  PayrollLineItem,
+  PayrollPayment,
+  PayrollPaymentRow,
   Profile,
+  ProfileRate,
   Project,
   ProjectBudget,
   ShareLink,
   Task,
+  TaskAssignee,
   TaskTimeRequest,
   TimeEntry,
   UserRole,
   UserUtilization,
   Workstream,
+  WorkstreamWithCount,
 } from './types'
 
 /** Anything that changes hours also changes money — invalidate together. */
@@ -71,6 +80,7 @@ export function useAllProfiles() {
 
 export function useUpdateProfile() {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: async ({
       id,
@@ -87,6 +97,10 @@ export function useUpdateProfile() {
           | 'capacity_hours_per_week'
           | 'is_active'
           | 'employment_type'
+          | 'termination_date'
+          | 'termination_reason'
+          | 'last_day_worked'
+          | 'rehire_eligible'
         >
       >
     }) => {
@@ -94,6 +108,39 @@ export function useUpdateProfile() {
       if (error) throw new Error(error.message)
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['profiles'] }),
+    onError: (err: Error) => toast.error("Couldn't save", err.message),
+  })
+}
+
+/** One row per profile, created lazily — most people don't have one until a
+ *  rate is first set, so a missing row means "no rate on file", not zero. */
+export function useProfileRates() {
+  return useQuery({
+    queryKey: ['profile-rates'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('profile_rates').select('*')
+      return unwrap<ProfileRate[]>(data, error)
+    },
+  })
+}
+
+/**
+ * HR-facing: sets only cost_rate (what the person is paid), never bill_rate
+ * (what the client is charged) - that stays a finance-only concern. Upserts
+ * since most profiles don't have a profile_rates row until their first rate.
+ */
+export function useUpdateCostRate() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async ({ profileId, orgId, costRate }: { profileId: string; orgId: string; costRate: number }) => {
+      const { error } = await supabase
+        .from('profile_rates')
+        .upsert({ profile_id: profileId, org_id: orgId, cost_rate: costRate }, { onConflict: 'profile_id' })
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['profile-rates'] }),
+    onError: (err: Error) => toast.error("Couldn't save rate", err.message),
   })
 }
 
@@ -105,6 +152,7 @@ export function useUpdateProfile() {
  */
 export function useInviteEmployee() {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: async (payload: {
       full_name: string
@@ -125,7 +173,11 @@ export function useInviteEmployee() {
       if (error) throw new Error(error.message)
       return data
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['profiles'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['profiles'] })
+      toast.success('Invite sent', "They'll get an email to set up access.")
+    },
+    onError: (err: Error) => toast.error("Couldn't send invite", err.message),
   })
 }
 
@@ -141,6 +193,7 @@ export function useAccounts() {
 
 export function useCreateAccount() {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: async (account: {
       org_id: string
@@ -154,18 +207,55 @@ export function useCreateAccount() {
       const { error } = await supabase.from('accounts').insert(account)
       if (error) throw new Error(error.message)
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['accounts'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['accounts'] })
+      toast.success('Account created')
+    },
+    onError: (err: Error) => toast.error("Couldn't create account", err.message),
   })
 }
 
 export function useUpdateAccount() {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: async ({ id, patch }: { id: string; patch: Partial<Omit<Account, 'id' | 'org_id'>> }) => {
       const { error } = await supabase.from('accounts').update(patch).eq('id', id)
       if (error) throw new Error(error.message)
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['accounts'] }),
+    onError: (err: Error) => toast.error("Couldn't save account", err.message),
+  })
+}
+
+/**
+ * "Deleting" an account is a soft delete: close the account and archive its
+ * projects rather than erasing the rows, so logged hours, invoices, and
+ * payment history stay intact for reporting. Reversible by editing statuses
+ * back.
+ */
+export function useArchiveAccount() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error: projectsError } = await supabase
+        .from('projects')
+        .update({ status: 'archived' })
+        .eq('account_id', id)
+      if (projectsError) throw new Error(projectsError.message)
+
+      const { error } = await supabase.from('accounts').update({ status: 'closed' }).eq('id', id)
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['accounts'] })
+      qc.invalidateQueries({ queryKey: ['budgets'] })
+      qc.invalidateQueries({ queryKey: ['project'] })
+      qc.invalidateQueries({ queryKey: ['dept-load'] })
+      toast.success('Account archived')
+    },
+    onError: (err: Error) => toast.error("Couldn't archive account", err.message),
   })
 }
 
@@ -247,6 +337,7 @@ export function useProject(projectId: string | undefined) {
 
 export function useCreateProject() {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: async (project: {
       org_id: string
@@ -270,12 +361,15 @@ export function useCreateProject() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['budgets'] })
       qc.invalidateQueries({ queryKey: ['dept-load'] })
+      toast.success('Project created')
     },
+    onError: (err: Error) => toast.error("Couldn't create project", err.message),
   })
 }
 
 export function useUpdateProject() {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: async ({ id, patch }: { id: string; patch: Partial<Omit<Project, 'id' | 'org_id'>> }) => {
       const { error } = await supabase.from('projects').update(patch).eq('id', id)
@@ -286,40 +380,75 @@ export function useUpdateProject() {
       qc.invalidateQueries({ queryKey: ['project'] })
       qc.invalidateQueries({ queryKey: ['dept-load'] })
     },
+    onError: (err: Error) => toast.error("Couldn't save project", err.message),
   })
 }
 
 // ---------------------------------------------------------------- work streams
 
-export function useWorkstreams(projectId: string | undefined) {
+/** Every work stream in the org — they're company-wide teams, not scoped to
+ *  a project, so there's no per-project variant of this list any more. */
+export function useAllWorkstreams() {
   return useQuery({
-    queryKey: ['workstreams', projectId ?? '-'],
-    enabled: !!projectId,
+    queryKey: ['workstreams', 'all'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('workstreams')
-        .select('*')
-        .eq('project_id', projectId!)
+        .select('*, workstream_members(count)')
         .order('name')
-      return unwrap<Workstream[]>(data, error)
+      if (error) throw new Error(error.message)
+      return (data ?? []).map((row) => {
+        const memberEmbed = row.workstream_members as unknown
+        const counts = (Array.isArray(memberEmbed) ? memberEmbed : []) as { count: number }[]
+        const { workstream_members: _members, ...ws } = row as Record<string, unknown>
+        return {
+          ...(ws as unknown as Workstream),
+          member_count: counts[0]?.count ?? 0,
+        } satisfies WorkstreamWithCount
+      })
+    },
+  })
+}
+
+/** Maps profile_id → the one workstream they lead, across the whole org.
+ *  A profile can only lead one (DB-enforced) — powers the "already leading
+ *  <workstream>" guard when assigning a new lead. */
+export function useWorkstreamLeadMap() {
+  return useQuery({
+    queryKey: ['workstream-leads'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('workstream_members')
+        .select('profile_id, workstream_id, workstreams(name)')
+        .eq('is_lead', true)
+      if (error) throw new Error(error.message)
+      const map = new Map<string, { workstreamId: string; workstreamName: string }>()
+      for (const row of data ?? []) {
+        const embedded = row.workstreams as unknown
+        const w = (Array.isArray(embedded) ? embedded[0] : embedded) as { name: string } | null
+        map.set(row.profile_id as string, {
+          workstreamId: row.workstream_id as string,
+          workstreamName: w?.name ?? 'another workstream',
+        })
+      }
+      return map
     },
   })
 }
 
 export function useCreateWorkstream() {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
-    mutationFn: async (ws: {
-      org_id: string
-      project_id: string
-      name: string
-      description: string | null
-      created_by: string
-    }) => {
+    mutationFn: async (ws: { org_id: string; name: string; description: string | null; created_by: string }) => {
       const { error } = await supabase.from('workstreams').insert(ws)
       if (error) throw new Error(error.message)
     },
-    onSuccess: (_data, vars) => qc.invalidateQueries({ queryKey: ['workstreams', vars.project_id] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['workstreams', 'all'] })
+      toast.success('Work stream created')
+    },
+    onError: (err: Error) => toast.error("Couldn't create work stream", err.message),
   })
 }
 
@@ -330,7 +459,10 @@ export function useWorkstreamMembers(workstreamId: string | undefined) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('workstream_members')
-        .select('profile_id, is_lead, added_at, profiles(id, full_name, email)')
+        // workstream_members has two FKs to profiles (profile_id, added_by),
+        // so the embed needs an explicit FK hint or PostgREST rejects it as
+        // ambiguous (PGRST201).
+        .select('profile_id, is_lead, added_at, profiles!workstream_members_profile_id_fkey(id, full_name, email)')
         .eq('workstream_id', workstreamId!)
       if (error) throw new Error(error.message)
       // PostgREST embeds a to-one relation as an object, but the client's
@@ -356,6 +488,7 @@ export function useWorkstreamMembers(workstreamId: string | undefined) {
 /** Flips coordination authority for one member of one workstream. */
 export function useSetWorkstreamLead() {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: async (args: { workstream_id: string; profile_id: string; is_lead: boolean }) => {
       const { error } = await supabase
@@ -365,25 +498,33 @@ export function useSetWorkstreamLead() {
         .eq('profile_id', args.profile_id)
       if (error) throw new Error(error.message)
     },
-    onSuccess: (_data, vars) =>
-      qc.invalidateQueries({ queryKey: ['workstream-members', vars.workstream_id] }),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['workstream-members', vars.workstream_id] })
+      qc.invalidateQueries({ queryKey: ['workstream-leads'] })
+    },
+    onError: (err: Error) => toast.error("Couldn't update lead", err.message),
   })
 }
 
 export function useAddWorkstreamMember() {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: async (args: { workstream_id: string; profile_id: string; added_by: string }) => {
       const { error } = await supabase.from('workstream_members').insert(args)
       if (error) throw new Error(error.message)
     },
-    onSuccess: (_data, vars) =>
-      qc.invalidateQueries({ queryKey: ['workstream-members', vars.workstream_id] }),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['workstream-members', vars.workstream_id] })
+      qc.invalidateQueries({ queryKey: ['workstreams', 'all'] })
+    },
+    onError: (err: Error) => toast.error("Couldn't add member", err.message),
   })
 }
 
 export function useRemoveWorkstreamMember() {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: async (args: { workstream_id: string; profile_id: string }) => {
       const { error } = await supabase
@@ -393,8 +534,12 @@ export function useRemoveWorkstreamMember() {
         .eq('profile_id', args.profile_id)
       if (error) throw new Error(error.message)
     },
-    onSuccess: (_data, vars) =>
-      qc.invalidateQueries({ queryKey: ['workstream-members', vars.workstream_id] }),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['workstream-members', vars.workstream_id] })
+      qc.invalidateQueries({ queryKey: ['workstreams', 'all'] })
+      qc.invalidateQueries({ queryKey: ['workstream-leads'] })
+    },
+    onError: (err: Error) => toast.error("Couldn't remove member", err.message),
   })
 }
 
@@ -427,6 +572,7 @@ export function useTaskHours(projectId?: string) {
 
 export function useUpdateTask() {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: async ({ id, patch }: { id: string; patch: Partial<Task> }) => {
       const { error } = await supabase.from('tasks').update(patch).eq('id', id)
@@ -436,20 +582,93 @@ export function useUpdateTask() {
       qc.invalidateQueries({ queryKey: ['tasks'] })
       qc.invalidateQueries({ queryKey: ['dept-load'] })
     },
+    onError: (err: Error) => toast.error("Couldn't save task", err.message),
   })
 }
 
 export function useCreateTask() {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
-    mutationFn: async (task: Partial<Task> & { project_id: string; title: string; org_id: string }) => {
-      const { error } = await supabase.from('tasks').insert(task)
+    mutationFn: async ({
+      assignee_ids,
+      ...task
+    }: Partial<Task> & {
+      project_id: string
+      title: string
+      org_id: string
+      created_by: string
+      assignee_ids?: string[]
+    }) => {
+      const { data, error } = await supabase.from('tasks').insert(task).select('id').single()
       if (error) throw new Error(error.message)
+      if (assignee_ids?.length) {
+        const rows = assignee_ids.map((profile_id) => ({
+          task_id: data.id as string,
+          profile_id,
+          org_id: task.org_id,
+          added_by: task.created_by,
+        }))
+        const { error: aError } = await supabase.from('task_assignees').insert(rows)
+        if (aError) throw new Error(aError.message)
+      }
+      return data.id as string
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['tasks'] })
+      qc.invalidateQueries({ queryKey: ['task-assignees'] })
+      qc.invalidateQueries({ queryKey: ['dept-load'] })
+      toast.success('Task created')
+    },
+    onError: (err: Error) => toast.error("Couldn't create task", err.message),
+  })
+}
+
+// ------------------------------------------------------------ task assignees
+
+export function useTaskAssignees() {
+  return useQuery({
+    queryKey: ['task-assignees'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('task_assignees').select('*')
+      return unwrap<TaskAssignee[]>(data, error)
+    },
+  })
+}
+
+/** Replaces the full assignee set for one task (delete-then-insert, so it
+ *  also covers clearing every assignee). */
+export function useSetTaskAssignees() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (args: {
+      task_id: string
+      profile_ids: string[]
+      org_id: string
+      added_by: string
+    }) => {
+      const { error: dError } = await supabase
+        .from('task_assignees')
+        .delete()
+        .eq('task_id', args.task_id)
+      if (dError) throw new Error(dError.message)
+      if (args.profile_ids.length) {
+        const rows = args.profile_ids.map((profile_id) => ({
+          task_id: args.task_id,
+          profile_id,
+          org_id: args.org_id,
+          added_by: args.added_by,
+        }))
+        const { error: iError } = await supabase.from('task_assignees').insert(rows)
+        if (iError) throw new Error(iError.message)
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['task-assignees'] })
       qc.invalidateQueries({ queryKey: ['dept-load'] })
     },
+    onError: (err: Error) => toast.error("Couldn't update assignees", err.message),
   })
 }
 
@@ -490,6 +709,7 @@ export function usePendingApprovals() {
 
 export function useRequestTimeExtension() {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: async (req: {
       org_id: string
@@ -501,7 +721,11 @@ export function useRequestTimeExtension() {
       const { error } = await supabase.from('task_time_requests').insert(req)
       if (error) throw new Error(error.message)
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['task-time-requests'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['task-time-requests'] })
+      toast.success('Time request sent')
+    },
+    onError: (err: Error) => toast.error("Couldn't send request", err.message),
   })
 }
 
@@ -512,6 +736,7 @@ export function useRequestTimeExtension() {
  */
 export function useDecideTimeExtension() {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: async (args: { requestId: string; decision: 'approve' | 'deny'; comment?: string }) => {
       const { error } = await supabase.rpc('decide_time_extension', {
@@ -521,15 +746,53 @@ export function useDecideTimeExtension() {
       })
       if (error) throw new Error(error.message)
     },
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['task-time-requests'] })
       qc.invalidateQueries({ queryKey: ['tasks'] })
       qc.invalidateQueries({ queryKey: ['dept-load'] })
+      toast.success(vars.decision === 'approve' ? 'Request approved' : 'Request denied')
     },
+    onError: (err: Error) => toast.error("Couldn't record decision", err.message),
   })
 }
 
 // ------------------------------------------------------------------ payroll
+
+/** Idempotently creates any missing biweekly periods (1st-15th, 16th-end of
+ *  month) for a year back and two months ahead. Cheap to call on every
+ *  Payroll page load — the unique constraint makes repeats a no-op. */
+export function useEnsurePayPeriods() {
+  const qc = useQueryClient()
+  return useQuery({
+    queryKey: ['pay-periods', 'ensure'],
+    queryFn: async () => {
+      const { error } = await supabase.rpc('ensure_pay_periods')
+      if (error) throw new Error(error.message)
+      qc.invalidateQueries({ queryKey: ['pay-periods'] })
+      return true
+    },
+    staleTime: 5 * 60_000,
+  })
+}
+
+/** The earliest and latest entry_date across all logged time, org-wide.
+ *  Used to trim the pay-period dropdown down to periods that could actually
+ *  have hours in them, instead of the whole rolling generation window. */
+export function useTimeEntryDateRange() {
+  return useQuery({
+    queryKey: ['time-entry-costs', 'date-range'],
+    queryFn: async () => {
+      const [oldest, newest] = await Promise.all([
+        supabase.from('time_entry_costs').select('entry_date').order('entry_date', { ascending: true }).limit(1).maybeSingle(),
+        supabase.from('time_entry_costs').select('entry_date').order('entry_date', { ascending: false }).limit(1).maybeSingle(),
+      ])
+      if (oldest.error) throw new Error(oldest.error.message)
+      if (newest.error) throw new Error(newest.error.message)
+      return { min: oldest.data?.entry_date ?? null, max: newest.data?.entry_date ?? null }
+    },
+    staleTime: 5 * 60_000,
+  })
+}
 
 export function usePayPeriods() {
   return useQuery({
@@ -544,30 +807,125 @@ export function usePayPeriods() {
   })
 }
 
-/** Total billable $ accrued across the org within one period's date range. */
-export function usePayPeriodTotal(periodStart: string, periodEnd: string) {
+/** Pay periods trimmed to the span that actually has logged time — from the
+ *  oldest period touching the first entry to the newest period touching the
+ *  most recent one — instead of the whole rolling window ensure_pay_periods()
+ *  keeps generated in the background. Shared by the Payment and Records tabs
+ *  so their "time period" dropdowns stay in sync. */
+export function useActivePayPeriods() {
+  const { data: allPeriods = [], isLoading: periodsLoading } = usePayPeriods()
+  const { data: entryRange, isLoading: rangeLoading } = useTimeEntryDateRange()
+  const periods = useMemo(() => {
+    if (!entryRange?.min || !entryRange?.max) return allPeriods
+    return allPeriods.filter((p) => p.period_end >= entryRange.min! && p.period_start <= entryRange.max!)
+  }, [allPeriods, entryRange])
+  return { periods, isLoading: periodsLoading || rangeLoading }
+}
+
+/** Every billable line (one employee x one project) within a pay period.
+ *  The Payment page groups these by employee and by project client-side,
+ *  and filters them further to drive the employee/project drill-down modals —
+ *  one fetch covers all three views instead of a query per grouping. */
+export function usePayrollEntries(periodStart?: string, periodEnd?: string) {
   return useQuery({
-    queryKey: ['pay-periods', 'total', periodStart, periodEnd],
+    queryKey: ['payroll-entries', periodStart, periodEnd],
+    enabled: !!periodStart && !!periodEnd,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('time_entry_costs')
-        .select('billable_amount')
-        .gte('entry_date', periodStart)
-        .lte('entry_date', periodEnd)
+        .select('billable_amount, user_id, profiles(full_name), project:projects(id, name), time_entries(duration_minutes)')
+        .gte('entry_date', periodStart as string)
+        .lte('entry_date', periodEnd as string)
       if (error) throw new Error(error.message)
-      return (data ?? []).reduce((sum, row) => sum + Number(row.billable_amount ?? 0), 0)
+
+      const rows: PayrollEntry[] = []
+      for (const row of data ?? []) {
+        const project = row.project as unknown as { id: string; name: string } | null
+        const profile = row.profiles as unknown as { full_name: string } | null
+        if (!project) continue
+        const minutes = (row.time_entries as unknown as { duration_minutes: number | null } | null)?.duration_minutes ?? 0
+        rows.push({
+          profile_id: row.user_id,
+          profile_name: profile?.full_name ?? 'Unknown',
+          project_id: project.id,
+          project_name: project.name,
+          hours: minutes / 60,
+          amount: Number(row.billable_amount ?? 0),
+        })
+      }
+      return rows
     },
   })
 }
 
-export function useMarkPayPeriodPaid() {
+/** Groups a set of PayrollEntry rows by a key, summing hours and amount. */
+export function groupPayrollEntries<K extends 'profile' | 'project'>(
+  entries: PayrollEntry[],
+  key: K,
+): PayrollLineItem[] {
+  const map = new Map<string, PayrollLineItem>()
+  for (const e of entries) {
+    const id = key === 'profile' ? e.profile_id : e.project_id
+    const name = key === 'profile' ? e.profile_name : e.project_name
+    const existing = map.get(id)
+    if (existing) {
+      existing.hours += e.hours
+      existing.amount += e.amount
+    } else {
+      map.set(id, { id, name, hours: e.hours, amount: e.amount })
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => b.amount - a.amount)
+}
+
+/** Every payment recorded for one pay period, keyed by profile_id so the
+ *  Payment page can badge already-paid employees without a query per row. */
+export function usePayrollPaymentsForPeriod(periodId?: string) {
+  return useQuery({
+    queryKey: ['payroll-payments', 'period', periodId],
+    enabled: !!periodId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('payroll_payments')
+        .select('*')
+        .eq('pay_period_id', periodId as string)
+      return unwrap<PayrollPayment[]>(data, error)
+    },
+  })
+}
+
+export function usePayrollPayments() {
+  return useQuery({
+    queryKey: ['payroll-payments'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('payroll_payments')
+        .select('*, profile:profiles!payroll_payments_profile_id_fkey(full_name), pay_period:pay_periods(period_start, period_end)')
+        .order('paid_at', { ascending: false })
+      return unwrap<PayrollPaymentRow[]>(data, error)
+    },
+  })
+}
+
+/** Bookkeeping only — records that an employee was paid. Does not move
+ *  money; that still happens through Deel until the payout trigger lands. */
+export function usePayEmployee() {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
-    mutationFn: async (periodId: string) => {
-      const { error } = await supabase.rpc('mark_pay_period_paid', { p_period_id: periodId })
+    mutationFn: async (args: { periodId: string; profileId: string; amount: number }) => {
+      const { error } = await supabase.rpc('record_payroll_payment', {
+        p_period_id: args.periodId,
+        p_profile_id: args.profileId,
+        p_amount: args.amount,
+      })
       if (error) throw new Error(error.message)
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['pay-periods'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['payroll-payments'] })
+      toast.success('Payment recorded')
+    },
+    onError: (err: Error) => toast.error("Couldn't record payment", err.message),
   })
 }
 
@@ -604,8 +962,17 @@ export function useDeliverableReviews(deliverableId: string | undefined) {
  * Stage changes go through the RPC, never a direct update — a database
  * trigger rejects a raw UPDATE on `stage` so the audit trail can't be skipped.
  */
+const DELIVERABLE_STAGE_LABEL: Record<DeliverableStage, string> = {
+  draft: 'Moved to draft',
+  internal_review: 'Sent for internal review',
+  client_review: 'Sent for client review',
+  approved: 'Deliverable approved',
+  revisions_requested: 'Revisions requested',
+}
+
 export function useTransitionDeliverable() {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: async (args: { id: string; toStage: DeliverableStage; comment?: string }) => {
       const { error } = await supabase.rpc('transition_deliverable', {
@@ -615,11 +982,13 @@ export function useTransitionDeliverable() {
       })
       if (error) throw new Error(error.message)
     },
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['deliverables'] })
       qc.invalidateQueries({ queryKey: ['reviews'] })
       qc.invalidateQueries({ queryKey: ['dept-load'] })
+      toast.success(DELIVERABLE_STAGE_LABEL[vars.toStage] ?? 'Deliverable updated')
     },
+    onError: (err: Error) => toast.error("Couldn't update deliverable", err.message),
   })
 }
 
@@ -645,6 +1014,7 @@ export function useTimeEntries(opts: { projectId?: string; userId?: string; sinc
 
 export function useLogTime() {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: async (entry: {
       org_id: string
@@ -662,12 +1032,15 @@ export function useLogTime() {
     onSuccess: () => {
       TIME_DEPENDENT_KEYS.forEach((key) => qc.invalidateQueries({ queryKey: key }))
       qc.invalidateQueries({ queryKey: ['task-hours'] })
+      toast.success('Time logged')
     },
+    onError: (err: Error) => toast.error("Couldn't log time", err.message),
   })
 }
 
 export function useDeleteTimeEntry() {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase.from('time_entries').delete().eq('id', id)
@@ -676,7 +1049,9 @@ export function useDeleteTimeEntry() {
     onSuccess: () => {
       TIME_DEPENDENT_KEYS.forEach((key) => qc.invalidateQueries({ queryKey: key }))
       qc.invalidateQueries({ queryKey: ['task-hours'] })
+      toast.success('Entry deleted')
     },
+    onError: (err: Error) => toast.error("Couldn't delete entry", err.message),
   })
 }
 
@@ -697,6 +1072,7 @@ export function useShareLinks() {
 
 export function useCreateShareLink() {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: async (accountId: string) => {
       const { data, error } = await supabase.rpc('create_account_share_link', {
@@ -706,6 +1082,10 @@ export function useCreateShareLink() {
       if (error) throw new Error(error.message)
       return data as ShareLink
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['share-links'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['share-links'] })
+      toast.success('Client link created')
+    },
+    onError: (err: Error) => toast.error("Couldn't create link", err.message),
   })
 }

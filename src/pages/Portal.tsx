@@ -6,6 +6,7 @@ import type { PortalPayload } from '@/lib/types'
 import { PROJECT_STATUS_CLASS, PROJECT_STATUS_LABEL, hours, longDate, shortDate } from '@/lib/format'
 import { BurnBar, Spinner } from '@/components/ui'
 import { Logo } from '@/components/Logo'
+import { useToast } from '@/contexts/ToastContext'
 
 /**
  * Anonymous client view. Everything it can see comes from one SECURITY
@@ -14,6 +15,7 @@ import { Logo } from '@/components/Logo'
  */
 export function Portal() {
   const { token } = useParams()
+  const toast = useToast()
   const [data, setData] = useState<PortalPayload | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -47,11 +49,12 @@ export function Portal() {
     })
     setBusy(null)
     if (error) {
-      setError(error.message)
+      toast.error("Couldn't submit your response", error.message)
       return
     }
     setComment('')
     setRejecting(null)
+    toast.success(decision === 'approve' ? 'Approved' : 'Feedback sent')
     await load()
   }
 
