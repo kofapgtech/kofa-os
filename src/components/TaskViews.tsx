@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Building2,
   CalendarDays,
   Check,
   ChevronDown,
@@ -11,7 +12,6 @@ import {
   ListPlus,
   Play,
   Plus,
-  Waypoints,
   X,
 } from 'lucide-react'
 import type { Profile, Task, TaskStatus } from '@/lib/types'
@@ -26,15 +26,14 @@ import {
   shortDate,
 } from '@/lib/format'
 import {
-  useAllWorkstreams,
   useCreateTask,
   useDecideTimeExtension,
+  useDepartments,
   useRequestTimeExtension,
   useSetTaskAssignees,
   useTaskAssignees,
   useTaskTimeRequests,
   useUpdateTask,
-  useWorkstreamMembers,
 } from '@/lib/queries'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTimer } from '@/contexts/TimerContext'
@@ -215,31 +214,29 @@ function AssigneeCell({ ids, nameById }: { ids: string[]; nameById: Record<strin
   )
 }
 
-/** Narrows the assignee pool to the chosen workstream's members, so
+/** Narrows the assignee pool to the chosen department's people, so
  *  assigning routes within the team it was handed to. Anyone already
  *  selected stays visible/removable even if they're not (or no longer) a
- *  member, so switching workstreams never silently disappears a pick. */
-function useAssigneePool(people: Profile[], workstreamId: string, selected: string[]) {
-  const { data: members = [] } = useWorkstreamMembers(workstreamId || undefined)
-  if (!workstreamId) return people
-  const memberIds = new Set(members.map((m) => m.profile_id))
-  return people.filter((p) => memberIds.has(p.id) || selected.includes(p.id))
+ *  member, so switching departments never silently disappears a pick. */
+function assigneePool(people: Profile[], departmentId: string, selected: string[]) {
+  if (!departmentId) return people
+  return people.filter((p) => p.department_id === departmentId || selected.includes(p.id))
 }
 
-/** Picks which company-wide team (if any) a task is routed to. Setting one
- *  notifies that workstream's lead(s) to assign it to someone on their team. */
-function WorkstreamSelect({ value, onChange }: { value: string; onChange: (id: string) => void }) {
-  const { data: workstreams = [] } = useAllWorkstreams()
+/** Picks which department (if any) a task is routed to. Setting one notifies
+ *  that department's lead(s) to assign it to someone on their team. */
+function DepartmentSelect({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+  const { data: departments = [] } = useDepartments()
   return (
     <div>
       <label className="label flex items-center gap-1.5">
-        <Waypoints size={13} /> Workstream
+        <Building2 size={13} /> Department
       </label>
       <select className="input" value={value} onChange={(e) => onChange(e.target.value)}>
-        <option value="">No workstream — assign directly</option>
-        {workstreams.map((w) => (
-          <option key={w.id} value={w.id}>
-            {w.name}
+        <option value="">No department — assign directly</option>
+        {departments.map((d) => (
+          <option key={d.id} value={d.id}>
+            {d.name}
           </option>
         ))}
       </select>
@@ -617,7 +614,7 @@ function TaskPanel({
     [allTasks, task.id],
   )
 
-  const assigneePool = useAssigneePool(people, draft.workstream_id ?? '', assigneeIds)
+  const pool = assigneePool(people, draft.department_id ?? '', assigneeIds)
 
   function patch(next: Partial<Task>) {
     setDraft((d) => ({ ...d, ...next }))
@@ -684,15 +681,15 @@ function TaskPanel({
       </div>
 
       <div className="mt-3">
-        <WorkstreamSelect
-          value={draft.workstream_id ?? ''}
-          onChange={(id) => patch({ workstream_id: id || null })}
+        <DepartmentSelect
+          value={draft.department_id ?? ''}
+          onChange={(id) => patch({ department_id: id || null })}
         />
       </div>
 
       <div className="mt-3">
         <label className="label">Assignees</label>
-        <AssigneePicker people={assigneePool} selected={assigneeIds} onToggle={toggleAssignee} />
+        <AssigneePicker people={pool} selected={assigneeIds} onToggle={toggleAssignee} />
       </div>
 
       <div className="mt-4">
@@ -901,13 +898,13 @@ function NewTaskPanel({
   const create = useCreateTask()
   const [title, setTitle] = useState('')
   const [assigneeIds, setAssigneeIds] = useState<string[]>([])
-  const [workstreamId, setWorkstreamId] = useState('')
+  const [departmentId, setDepartmentId] = useState('')
   const [due, setDue] = useState('')
   const [estimate, setEstimate] = useState('')
   const [priority, setPriority] = useState<Task['priority']>('medium')
   const [note, setNote] = useState('')
 
-  const assigneePool = useAssigneePool(people, workstreamId, assigneeIds)
+  const pool = assigneePool(people, departmentId, assigneeIds)
 
   function toggleAssignee(id: string) {
     setAssigneeIds((ids) => (ids.includes(id) ? ids.filter((a) => a !== id) : [...ids, id]))
@@ -927,22 +924,22 @@ function NewTaskPanel({
           />
         </div>
         <div>
-          <WorkstreamSelect
-            value={workstreamId}
+          <DepartmentSelect
+            value={departmentId}
             onChange={(id) => {
-              setWorkstreamId(id)
+              setDepartmentId(id)
               setAssigneeIds([])
             }}
           />
-          {workstreamId && (
+          {departmentId && (
             <p className="mt-1 text-xs text-ink-500">
-              Leave assignees blank to let the workstream's lead pick who on their team does it.
+              Leave assignees blank to let the department's lead pick who on their team does it.
             </p>
           )}
         </div>
         <div>
           <label className="label">Assignees</label>
-          <AssigneePicker people={assigneePool} selected={assigneeIds} onToggle={toggleAssignee} />
+          <AssigneePicker people={pool} selected={assigneeIds} onToggle={toggleAssignee} />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -995,7 +992,7 @@ function NewTaskPanel({
               title: title.trim(),
               description: note.trim() || null,
               assignee_ids: assigneeIds,
-              workstream_id: workstreamId || null,
+              department_id: departmentId || null,
               due_date: due || null,
               estimated_hours: estimate ? Number(estimate) : null,
               priority,

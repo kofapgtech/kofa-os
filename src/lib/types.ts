@@ -27,41 +27,17 @@ export type NotificationType =
   | 'timer_running'
   | 'time_extension_requested'
   | 'time_extension_decided'
-  | 'workstream_task_assigned'
+  | 'department_task_assigned'
 
+/** A company-wide team (Studio, Tech/Tools, PPC, ...). Doubles as the org
+ *  chart grouping for employees (Profile.department_id) and as the team a
+ *  task can be routed to (Task.department_id) — there's no separate
+ *  "workstream" concept, departments are it. */
 export interface Department {
   id: string
   org_id: string
   name: string
   color: string
-}
-
-/** A work stream: a company-wide team. Tasks (not workstreams) carry the
- *  project link — a workstream can pick up work from any project. */
-export interface Workstream {
-  id: string
-  org_id: string
-  name: string
-  description: string | null
-  created_by: string | null
-  created_at: string
-  updated_at: string
-}
-
-export interface WorkstreamWithCount extends Workstream {
-  member_count: number
-}
-
-export interface WorkstreamMember {
-  workstream_id: string
-  profile_id: string
-  /** Coordination authority within this one workstream: can reassign tasks
-   *  routed to it and decide time-extension requests on them. A profile can
-   *  be a member of many workstreams but is_lead on at most one (enforced by
-   *  a DB constraint). Not a global role. */
-  is_lead: boolean
-  added_by: string | null
-  added_at: string
 }
 
 export interface Profile {
@@ -127,12 +103,11 @@ export interface Task {
   org_id: string
   project_id: string
   parent_task_id: string | null
-  /** Routes the task to a company-wide team rather than a specific person.
-   *  Setting this notifies the workstream's lead(s), who then pick a member
-   *  to actually assign it to (via task_assignees). Also gates who beyond
-   *  the creator/assignee can update the task and decide its time-extension
-   *  requests — see the workstream-lead clauses on tasks/task_time_requests. */
-  workstream_id: string | null
+  /** Routes the task to a department (which can differ from the project's
+   *  own department) rather than a specific person. Setting this notifies
+   *  the department's dept_lead(s), who then pick a teammate to actually
+   *  assign it to (via task_assignees). */
+  department_id: string | null
   title: string
   description: string | null
   status: TaskStatus

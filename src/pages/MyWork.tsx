@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, CheckCircle2, Clock, FileCheck2, Hourglass, Waypoints } from 'lucide-react'
+import { AlertTriangle, Building2, CheckCircle2, Clock, FileCheck2, Hourglass } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTimer } from '@/contexts/TimerContext'
 import {
@@ -12,7 +12,6 @@ import {
   useTaskHours,
   useTasks,
   useTimeEntries,
-  useWorkstreamLeadMap,
 } from '@/lib/queries'
 import { TaskViews } from '@/components/TaskViews'
 import { EmptyState, PageHeader, Spinner, StatCard } from '@/components/ui'
@@ -28,7 +27,6 @@ export function MyWork() {
   const { data: projects = [] } = useProjectBudgets()
   const { data: deliverables = [] } = useDeliverables()
   const { data: pendingRequests = [] } = usePendingApprovals()
-  const { data: leadMap } = useWorkstreamLeadMap()
 
   const weekStart = useMemo(() => {
     const d = new Date()
@@ -73,18 +71,18 @@ export function MyWork() {
   )
   const taskById = useMemo(() => Object.fromEntries(tasks.map((t) => [t.id, t])), [tasks])
 
-  // Tasks routed to the workstream I lead, still with nobody assigned —
-  // mine to staff. A profile leads at most one workstream (DB-enforced).
-  const myLeadWorkstreamId = profile ? leadMap?.get(profile.id)?.workstreamId : undefined
+  // Tasks routed to my department, still with nobody assigned — mine to
+  // staff, if I'm that department's lead.
+  const myLeadDepartmentId = profile?.role === 'dept_lead' ? profile.department_id : null
   const assignedTaskIds = useMemo(() => new Set(taskAssignees.map((a) => a.task_id)), [taskAssignees])
-  const myWorkstreamQueue = useMemo(
+  const myDepartmentQueue = useMemo(
     () =>
-      myLeadWorkstreamId
+      myLeadDepartmentId
         ? tasks.filter(
-            (t) => t.workstream_id === myLeadWorkstreamId && t.status !== 'done' && !assignedTaskIds.has(t.id),
+            (t) => t.department_id === myLeadDepartmentId && t.status !== 'done' && !assignedTaskIds.has(t.id),
           )
         : [],
-    [tasks, myLeadWorkstreamId, assignedTaskIds],
+    [tasks, myLeadDepartmentId, assignedTaskIds],
   )
 
   const projectName = (id: string) => projects.find((p) => p.project_id === id)?.name ?? ''
@@ -184,13 +182,13 @@ export function MyWork() {
         </div>
       )}
 
-      {myWorkstreamQueue.length > 0 && (
+      {myDepartmentQueue.length > 0 && (
         <div className="card mb-6 p-4">
           <p className="mb-3 flex items-center gap-2 text-sm font-semibold text-ink-900">
-            <Waypoints size={15} /> Tasks waiting for you to staff
+            <Building2 size={15} /> Tasks waiting for you to staff
           </p>
           <div className="space-y-2">
-            {myWorkstreamQueue.map((t) => (
+            {myDepartmentQueue.map((t) => (
               <Link
                 key={t.id}
                 to={`/projects/${t.project_id}`}

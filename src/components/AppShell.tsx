@@ -54,7 +54,7 @@ const NAV: NavItem[] = [
     gate: 'admin',
     children: [
       { to: '/admin/employees', label: 'Employees' },
-      { to: '/admin/workstreams', label: 'Workstreams', gate: 'admin-full' },
+      { to: '/admin/departments', label: 'Departments', gate: 'admin-full' },
     ],
   },
 ]
@@ -67,7 +67,7 @@ export function AppShell() {
 
   // "Admin" covers three audiences now: full admin/executive access, or
   // HR's narrower roster-only slice of the same section (see
-  // AdminEmployees.tsx). Workstreams is admin/executive only.
+  // AdminEmployees.tsx). Departments is admin/executive only.
   const canReachAdmin = isAdmin || isExecutive || isHR
 
   function passesGate(gate: NavGate) {

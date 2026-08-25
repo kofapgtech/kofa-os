@@ -15,7 +15,7 @@ import { Deliverables } from '@/pages/Deliverables'
 import { Timesheet } from '@/pages/Timesheet'
 import { Accounts } from '@/pages/Accounts'
 import { AdminEmployees } from '@/pages/AdminEmployees'
-import { AdminWorkstreams } from '@/pages/AdminWorkstreams'
+import { AdminDepartments } from '@/pages/AdminDepartments'
 import { PayrollPayment } from '@/pages/PayrollPayment'
 import { PayrollRecords } from '@/pages/PayrollRecords'
 import { NotificationsPage } from '@/pages/NotificationsPage'
@@ -58,7 +58,7 @@ export default function App() {
               <Route path="/accounts" element={<Accounts />} />
               <Route path="/admin" element={<Navigate to="/admin/employees" replace />} />
               <Route path="/admin/employees" element={<AdminEmployees />} />
-              <Route path="/admin/workstreams" element={<AdminWorkstreams />} />
+              <Route path="/admin/departments" element={<AdminDepartments />} />
               <Route path="/payroll" element={<Navigate to="/payroll/payment" replace />} />
               <Route path="/payroll/payment" element={<PayrollPayment />} />
               <Route path="/payroll/records" element={<PayrollRecords />} />

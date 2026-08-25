@@ -26,8 +26,6 @@ import type {
   TimeEntry,
   UserRole,
   UserUtilization,
-  Workstream,
-  WorkstreamWithCount,
 } from './types'
 
 /** Anything that changes hours also changes money — invalidate together. */
@@ -384,162 +382,19 @@ export function useUpdateProject() {
   })
 }
 
-// ---------------------------------------------------------------- work streams
-
-/** Every work stream in the org — they're company-wide teams, not scoped to
- *  a project, so there's no per-project variant of this list any more. */
-export function useAllWorkstreams() {
-  return useQuery({
-    queryKey: ['workstreams', 'all'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('workstreams')
-        .select('*, workstream_members(count)')
-        .order('name')
-      if (error) throw new Error(error.message)
-      return (data ?? []).map((row) => {
-        const memberEmbed = row.workstream_members as unknown
-        const counts = (Array.isArray(memberEmbed) ? memberEmbed : []) as { count: number }[]
-        const { workstream_members: _members, ...ws } = row as Record<string, unknown>
-        return {
-          ...(ws as unknown as Workstream),
-          member_count: counts[0]?.count ?? 0,
-        } satisfies WorkstreamWithCount
-      })
-    },
-  })
-}
-
-/** Maps profile_id → the one workstream they lead, across the whole org.
- *  A profile can only lead one (DB-enforced) — powers the "already leading
- *  <workstream>" guard when assigning a new lead. */
-export function useWorkstreamLeadMap() {
-  return useQuery({
-    queryKey: ['workstream-leads'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('workstream_members')
-        .select('profile_id, workstream_id, workstreams(name)')
-        .eq('is_lead', true)
-      if (error) throw new Error(error.message)
-      const map = new Map<string, { workstreamId: string; workstreamName: string }>()
-      for (const row of data ?? []) {
-        const embedded = row.workstreams as unknown
-        const w = (Array.isArray(embedded) ? embedded[0] : embedded) as { name: string } | null
-        map.set(row.profile_id as string, {
-          workstreamId: row.workstream_id as string,
-          workstreamName: w?.name ?? 'another workstream',
-        })
-      }
-      return map
-    },
-  })
-}
-
-export function useCreateWorkstream() {
+export function useCreateDepartment() {
   const qc = useQueryClient()
   const toast = useToast()
   return useMutation({
-    mutationFn: async (ws: { org_id: string; name: string; description: string | null; created_by: string }) => {
-      const { error } = await supabase.from('workstreams').insert(ws)
+    mutationFn: async (dept: { org_id: string; name: string }) => {
+      const { error } = await supabase.from('departments').insert(dept)
       if (error) throw new Error(error.message)
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['workstreams', 'all'] })
-      toast.success('Work stream created')
+      qc.invalidateQueries({ queryKey: ['departments'] })
+      toast.success('Department created')
     },
-    onError: (err: Error) => toast.error("Couldn't create work stream", err.message),
-  })
-}
-
-export function useWorkstreamMembers(workstreamId: string | undefined) {
-  return useQuery({
-    queryKey: ['workstream-members', workstreamId ?? '-'],
-    enabled: !!workstreamId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('workstream_members')
-        // workstream_members has two FKs to profiles (profile_id, added_by),
-        // so the embed needs an explicit FK hint or PostgREST rejects it as
-        // ambiguous (PGRST201).
-        .select('profile_id, is_lead, added_at, profiles!workstream_members_profile_id_fkey(id, full_name, email)')
-        .eq('workstream_id', workstreamId!)
-      if (error) throw new Error(error.message)
-      // PostgREST embeds a to-one relation as an object, but the client's
-      // type inference (no generated Database schema here) can't know that
-      // cardinality from the select string alone and assumes an array.
-      return (data ?? []).map((row) => {
-        const embedded = row.profiles as unknown
-        const p = (Array.isArray(embedded) ? embedded[0] : embedded) as Pick<
-          Profile,
-          'id' | 'full_name' | 'email'
-        >
-        return {
-          profile_id: row.profile_id as string,
-          is_lead: row.is_lead as boolean,
-          added_at: row.added_at as string,
-          profile: p,
-        }
-      })
-    },
-  })
-}
-
-/** Flips coordination authority for one member of one workstream. */
-export function useSetWorkstreamLead() {
-  const qc = useQueryClient()
-  const toast = useToast()
-  return useMutation({
-    mutationFn: async (args: { workstream_id: string; profile_id: string; is_lead: boolean }) => {
-      const { error } = await supabase
-        .from('workstream_members')
-        .update({ is_lead: args.is_lead })
-        .eq('workstream_id', args.workstream_id)
-        .eq('profile_id', args.profile_id)
-      if (error) throw new Error(error.message)
-    },
-    onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ['workstream-members', vars.workstream_id] })
-      qc.invalidateQueries({ queryKey: ['workstream-leads'] })
-    },
-    onError: (err: Error) => toast.error("Couldn't update lead", err.message),
-  })
-}
-
-export function useAddWorkstreamMember() {
-  const qc = useQueryClient()
-  const toast = useToast()
-  return useMutation({
-    mutationFn: async (args: { workstream_id: string; profile_id: string; added_by: string }) => {
-      const { error } = await supabase.from('workstream_members').insert(args)
-      if (error) throw new Error(error.message)
-    },
-    onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ['workstream-members', vars.workstream_id] })
-      qc.invalidateQueries({ queryKey: ['workstreams', 'all'] })
-    },
-    onError: (err: Error) => toast.error("Couldn't add member", err.message),
-  })
-}
-
-export function useRemoveWorkstreamMember() {
-  const qc = useQueryClient()
-  const toast = useToast()
-  return useMutation({
-    mutationFn: async (args: { workstream_id: string; profile_id: string }) => {
-      const { error } = await supabase
-        .from('workstream_members')
-        .delete()
-        .eq('workstream_id', args.workstream_id)
-        .eq('profile_id', args.profile_id)
-      if (error) throw new Error(error.message)
-    },
-    onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ['workstream-members', vars.workstream_id] })
-      qc.invalidateQueries({ queryKey: ['workstreams', 'all'] })
-      qc.invalidateQueries({ queryKey: ['workstream-leads'] })
-    },
-    onError: (err: Error) => toast.error("Couldn't remove member", err.message),
+    onError: (err: Error) => toast.error("Couldn't create department", err.message),
   })
 }
 
@@ -689,9 +544,9 @@ export function useTaskTimeRequests(taskId?: string) {
 
 /**
  * Every pending request the signed-in user could act on — mirrors the RLS
- * read policy's logic (own requests aside): any lead/admin/executive, or a
- * workstream lead of the task's project. Powers the "waiting on you" card
- * on My Work; RLS is still the real enforcement if this over- or under-fetches.
+ * read policy's logic (own requests aside): any dept_lead/admin/executive,
+ * org-wide. Powers the "waiting on you" card on My Work; RLS is still the
+ * real enforcement if this over- or under-fetches.
  */
 export function usePendingApprovals() {
   return useQuery({
