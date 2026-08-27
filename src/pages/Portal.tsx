@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { Check, CheckCircle2, Clock, RotateCcw } from 'lucide-react'
+import { Check, CheckCircle2, RotateCcw } from 'lucide-react'
 import { supabase } from '@/lib/supabaseClient'
 import type { PortalPayload } from '@/lib/types'
-import { PROJECT_STATUS_CLASS, PROJECT_STATUS_LABEL, hours, longDate, shortDate } from '@/lib/format'
+import { PROJECT_STATUS_CLASS, PROJECT_STATUS_LABEL, longDate, shortDate } from '@/lib/format'
 import { BurnBar, Spinner } from '@/components/ui'
 import { Logo } from '@/components/Logo'
 import { useToast } from '@/contexts/ToastContext'
@@ -171,12 +171,7 @@ export function Portal() {
                   <BurnBar percent={p.consumed_pct} />
                 </div>
                 <div className="mt-3 flex items-center justify-between text-xs text-ink-500">
-                  <span className="flex items-center gap-1.5">
-                    <Clock size={13} /> {hours(p.hours_logged)} of {p.budget_hours}h
-                  </span>
-                  <span>
-                    {p.open_tasks} open · due {shortDate(p.due_date)}
-                  </span>
+                  <span>{p.open_tasks} open tasks</span>
                 </div>
               </div>
             ))}

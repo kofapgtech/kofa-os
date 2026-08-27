@@ -21,7 +21,7 @@ import {
   useProjectBudgets,
   useUtilization,
 } from '@/lib/queries'
-import { BurnBar, PageHeader, Spinner, StatCard } from '@/components/ui'
+import { BurnBar, PageHeader, SortableTh, Spinner, StatCard, sortRows, useTableSort } from '@/components/ui'
 import { STAGE_CLASS, STAGE_LABEL, hours, money, shortDate } from '@/lib/format'
 
 export function CommandCenter() {
@@ -36,6 +36,26 @@ export function CommandCenter() {
     () => projects.filter((p) => p.status === 'active' || p.status === 'planning'),
     [projects],
   )
+
+  const projectSort = useTableSort<'name' | 'length' | 'burn' | 'spent' | 'budget' | 'margin'>()
+  const sortedActive = sortRows(active, projectSort.sortKey, projectSort.sortDir, (p, key) => {
+    switch (key) {
+      case 'name':
+        return p.name.toLowerCase()
+      case 'length':
+        return p.length_months
+      case 'burn':
+        return p.pct_amount
+      case 'spent':
+        return p.accrued_amount
+      case 'budget':
+        return p.budget_amount
+      case 'margin':
+        return p.margin_pct
+      default:
+        return null
+    }
+  })
 
   const atRisk = active.filter((p) => (p.pct_amount ?? 0) >= 90)
   const totalBudget = active.reduce((s, p) => s + p.budget_amount, 0)
@@ -174,17 +194,16 @@ export function CommandCenter() {
           <table className="w-full min-w-[760px]">
             <thead className="border-b border-cream-300 bg-cream-100">
               <tr>
-                <th className="th">Project</th>
-                <th className="th">Department</th>
-                <th className="th">Lead</th>
-                <th className="th w-52">Burn</th>
-                <th className="th text-right">Spent</th>
-                <th className="th text-right">Budget</th>
-                <th className="th text-right">Margin</th>
+                <SortableTh label="Project" sortKey="name" sort={projectSort} />
+                <SortableTh label="Length" sortKey="length" sort={projectSort} />
+                <SortableTh label="Burn" sortKey="burn" sort={projectSort} className="w-52" />
+                <SortableTh label="Spent" sortKey="spent" sort={projectSort} align="right" className="text-right" />
+                <SortableTh label="Budget" sortKey="budget" sort={projectSort} align="right" className="text-right" />
+                <SortableTh label="Margin" sortKey="margin" sort={projectSort} align="right" className="text-right" />
               </tr>
             </thead>
             <tbody className="divide-y divide-cream-200">
-              {active.map((p) => (
+              {sortedActive.map((p) => (
                 <tr key={p.project_id} className="hover:bg-cream-100">
                   <td className="td">
                     <Link className="font-medium text-ink-900 hover:text-brand-700" to={`/projects/${p.project_id}`}>
@@ -192,8 +211,9 @@ export function CommandCenter() {
                     </Link>
                     <span className="block text-xs text-ink-500">{p.account_name}</span>
                   </td>
-                  <td className="td">{p.department_name ?? '—'}</td>
-                  <td className="td">{nameOf(p.lead_id)}</td>
+                  <td className="td">
+                    {p.length_months} {p.length_months === 1 ? 'mo' : 'mos'}
+                  </td>
                   <td className="td">
                     <BurnBar percent={p.pct_amount} showLabel={false} />
                   </td>

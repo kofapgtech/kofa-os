@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { groupPayrollEntries, useActivePayPeriods, useEnsurePayPeriods, usePayrollEntries, usePayrollPaymentsForPeriod } from '@/lib/queries'
-import { EmptyState, PageHeader, Spinner } from '@/components/ui'
+import { EmptyState, PageHeader, SortableTh, Spinner, sortRows, useTableSort } from '@/components/ui'
 import { PayrollInvoiceModal } from '@/components/PayrollInvoiceModal'
 import { hours, longDate, money } from '@/lib/format'
 
@@ -32,6 +32,11 @@ export function PayrollPayment() {
   const byEmployee = useMemo(() => groupPayrollEntries(entries, 'profile'), [entries])
   const byProject = useMemo(() => groupPayrollEntries(entries, 'project'), [entries])
   const periodTotal = useMemo(() => byEmployee.reduce((sum, row) => sum + row.amount, 0), [byEmployee])
+
+  const employeeSort = useTableSort<'name' | 'hours' | 'amount'>()
+  const sortedByEmployee = sortRows(byEmployee, employeeSort.sortKey, employeeSort.sortDir, (row, key) => row[key])
+  const projectSort = useTableSort<'name' | 'hours' | 'amount'>()
+  const sortedByProject = sortRows(byProject, projectSort.sortKey, projectSort.sortDir, (row, key) => row[key])
 
   const [openEmployeeId, setOpenEmployeeId] = useState<string | null>(null)
   const [openProjectId, setOpenProjectId] = useState<string | null>(null)
@@ -87,13 +92,13 @@ export function PayrollPayment() {
                     <table className="w-full">
                       <thead>
                         <tr className="border-b border-cream-300">
-                          <th className="th">Employee</th>
-                          <th className="th text-right">Hours</th>
-                          <th className="th text-right">Amount to pay</th>
+                          <SortableTh label="Employee" sortKey="name" sort={employeeSort} />
+                          <SortableTh label="Hours" sortKey="hours" sort={employeeSort} align="right" className="text-right" />
+                          <SortableTh label="Amount to pay" sortKey="amount" sort={employeeSort} align="right" className="text-right" />
                         </tr>
                       </thead>
                       <tbody>
-                        {byEmployee.map((row) => (
+                        {sortedByEmployee.map((row) => (
                           <tr
                             key={row.id}
                             className="cursor-pointer border-b border-cream-100 last:border-0 hover:bg-cream-100"
@@ -120,13 +125,13 @@ export function PayrollPayment() {
                     <table className="w-full">
                       <thead>
                         <tr className="border-b border-cream-300">
-                          <th className="th">Project</th>
-                          <th className="th text-right">Hours</th>
-                          <th className="th text-right">Amount spent</th>
+                          <SortableTh label="Project" sortKey="name" sort={projectSort} />
+                          <SortableTh label="Hours" sortKey="hours" sort={projectSort} align="right" className="text-right" />
+                          <SortableTh label="Amount spent" sortKey="amount" sort={projectSort} align="right" className="text-right" />
                         </tr>
                       </thead>
                       <tbody>
-                        {byProject.map((row) => (
+                        {sortedByProject.map((row) => (
                           <tr
                             key={row.id}
                             className="cursor-pointer border-b border-cream-100 last:border-0 hover:bg-cream-100"

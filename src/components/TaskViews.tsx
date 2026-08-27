@@ -5,6 +5,7 @@ import {
   Check,
   ChevronDown,
   Clock,
+  DollarSign,
   Flame,
   Hourglass,
   LayoutGrid,
@@ -14,7 +15,7 @@ import {
   Plus,
   X,
 } from 'lucide-react'
-import type { Profile, Task, TaskStatus } from '@/lib/types'
+import type { Profile, Task, TaskHourAllocation, TaskStatus } from '@/lib/types'
 import {
   PRIORITY_CLASS,
   PRIORITY_OPTION_CLASS,
@@ -22,22 +23,29 @@ import {
   TASK_STATUS_LABEL,
   TASK_STATUS_ORDER,
   hours,
+  money,
   relativeTime,
   shortDate,
 } from '@/lib/format'
 import {
   useCreateTask,
   useDecideTimeExtension,
+  useDeleteTaskHourAllocation,
   useDepartments,
+  useProfileRates,
   useRequestTimeExtension,
+  useRequestWorkstreamBudget,
   useSetTaskAssignees,
+  useSetTaskHourAllocation,
   useTaskAssignees,
+  useTaskHourAllocations,
   useTaskTimeRequests,
   useUpdateTask,
+  useWorkstreamBudgets,
 } from '@/lib/queries'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTimer } from '@/contexts/TimerContext'
-import { Avatar, Chip, EmptyState, Spinner } from './ui'
+import { Avatar, Chip, EmptyState, SortableTh, Spinner, sortRows, useTableSort } from './ui'
 
 export type TaskViewMode = 'list' | 'board' | 'calendar'
 
@@ -48,14 +56,22 @@ interface Props {
   projectId?: string
   /** Only supplied on cross-project views, where the project needs naming. */
   projectNames?: Record<string, string>
+  /** Deep-link from a notification: open this task's drawer once it's in `tasks`. */
+  openTaskId?: string
 }
 
-export function TaskViews({ tasks, people, hoursByTask, projectId, projectNames }: Props) {
+export function TaskViews({ tasks, people, hoursByTask, projectId, projectNames, openTaskId }: Props) {
   const [mode, setMode] = useState<TaskViewMode>('list')
   const [status, setStatus] = useState<TaskStatus | 'all'>('all')
   const [assignee, setAssignee] = useState('all')
   const [selected, setSelected] = useState<Task | null>(null)
   const [adding, setAdding] = useState(false)
+
+  useEffect(() => {
+    if (!openTaskId) return
+    const target = tasks.find((t) => t.id === openTaskId)
+    if (target) setSelected(target)
+  }, [openTaskId, tasks])
 
   const { data: taskAssignees = [] } = useTaskAssignees()
 
@@ -214,26 +230,27 @@ function AssigneeCell({ ids, nameById }: { ids: string[]; nameById: Record<strin
   )
 }
 
-/** Narrows the assignee pool to the chosen department's people, so
+/** Narrows the assignee pool to the chosen workstream's people, so
  *  assigning routes within the team it was handed to. Anyone already
  *  selected stays visible/removable even if they're not (or no longer) a
- *  member, so switching departments never silently disappears a pick. */
+ *  member, so switching workstreams never silently disappears a pick. */
 function assigneePool(people: Profile[], departmentId: string, selected: string[]) {
   if (!departmentId) return people
   return people.filter((p) => p.department_id === departmentId || selected.includes(p.id))
 }
 
-/** Picks which department (if any) a task is routed to. Setting one notifies
- *  that department's lead(s) to assign it to someone on their team. */
+/** Picks which workstream (if any) a task is routed to. Setting one notifies
+ *  that workstream's lead(s) to assign it to someone on their team, and is
+ *  also what a task's hour allocations draw budget from. */
 function DepartmentSelect({ value, onChange }: { value: string; onChange: (id: string) => void }) {
   const { data: departments = [] } = useDepartments()
   return (
     <div>
       <label className="label flex items-center gap-1.5">
-        <Building2 size={13} /> Department
+        <Building2 size={13} /> Workstream
       </label>
       <select className="input" value={value} onChange={(e) => onChange(e.target.value)}>
-        <option value="">No department — assign directly</option>
+        <option value="">No workstream — assign directly</option>
         {departments.map((d) => (
           <option key={d.id} value={d.id}>
             {d.name}
@@ -328,6 +345,10 @@ function AssigneePicker({
 
 // ------------------------------------------------------------------- views
 
+type TaskSortKey = 'task' | 'status' | 'assignee' | 'priority' | 'due' | 'logged'
+
+const PRIORITY_RANK: Record<Task['priority'], number> = { low: 0, medium: 1, high: 2, urgent: 3 }
+
 function ListView({
   tasks,
   nameById,
@@ -344,6 +365,28 @@ function ListView({
   onOpen: (t: Task) => void
 }) {
   const update = useUpdateTask()
+  const sort = useTableSort<TaskSortKey>()
+
+  const sorted = sortRows(tasks, sort.sortKey, sort.sortDir, (t, key) => {
+    switch (key) {
+      case 'task':
+        return t.title.toLowerCase()
+      case 'status':
+        return TASK_STATUS_ORDER.indexOf(t.status)
+      case 'assignee': {
+        const ids = assigneesByTask[t.id] ?? []
+        return ids.length ? (nameById[ids[0]] ?? '').toLowerCase() : null
+      }
+      case 'priority':
+        return PRIORITY_RANK[t.priority]
+      case 'due':
+        return t.due_date
+      case 'logged':
+        return hoursByTask[t.id] ?? 0
+      default:
+        return null
+    }
+  })
 
   return (
     <div className="card overflow-hidden">
@@ -351,16 +394,16 @@ function ListView({
         <table className="w-full min-w-[720px]">
           <thead className="border-b border-cream-300 bg-cream-100">
             <tr>
-              <th className="th">Task</th>
-              <th className="th">Status</th>
-              <th className="th">Assignee</th>
-              <th className="th">Priority</th>
-              <th className="th">Due</th>
-              <th className="th text-right">Logged / Est.</th>
+              <SortableTh label="Task" sortKey="task" sort={sort} />
+              <SortableTh label="Status" sortKey="status" sort={sort} />
+              <SortableTh label="Assignee" sortKey="assignee" sort={sort} />
+              <SortableTh label="Priority" sortKey="priority" sort={sort} />
+              <SortableTh label="Due" sortKey="due" sort={sort} />
+              <SortableTh label="Logged / Est." sortKey="logged" sort={sort} align="right" className="text-right" />
             </tr>
           </thead>
           <tbody className="divide-y divide-cream-200">
-            {tasks.map((t) => {
+            {sorted.map((t) => {
               const overdue = t.due_date && t.status !== 'done' && new Date(t.due_date) < new Date()
               const urgent = t.priority === 'urgent'
               return (
@@ -692,6 +735,8 @@ function TaskPanel({
         <AssigneePicker people={pool} selected={assigneeIds} onToggle={toggleAssignee} />
       </div>
 
+      <HourAllocationsSection task={draft} assigneeIds={assigneeIds} people={people} />
+
       <div className="mt-4">
         <label className="label">Description</label>
         <textarea
@@ -760,6 +805,335 @@ function TaskPanel({
         />
       )}
     </Drawer>
+  )
+}
+
+// -------------------------------------------------------- hour allocations
+
+function addMonths(monthStr: string, n: number): string {
+  const [y, m] = monthStr.split('-').map(Number)
+  const total = y * 12 + (m - 1) + n
+  const ny = Math.floor(total / 12)
+  const nm = (total % 12) + 1
+  return `${ny}-${String(nm).padStart(2, '0')}-01`
+}
+
+function monthLabel(monthStr: string): string {
+  const [y, m] = monthStr.split('-').map(Number)
+  return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+}
+
+function currentMonthStart(): string {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+}
+
+/** Per-assignee hour commitments on this task, scoped to a budget month.
+ *  Each row's hours × the contractor's bill_rate draws down the task's
+ *  workstream's budget for that month (v_workstream_budget.committed_amount).
+ *  Going over the remaining budget doesn't block the commit — it warns and
+ *  offers to submit a request for more room to the executive, same as
+ *  TimeRequestSection does for task-level hour overruns. A task that isn't
+ *  finished within its month can have its leftover hours carried into the
+ *  next one instead of losing them. */
+function HourAllocationsSection({
+  task,
+  assigneeIds,
+  people,
+}: {
+  task: Task
+  assigneeIds: string[]
+  people: Profile[]
+}) {
+  const { profile, isLeadership } = useAuth()
+  const { data: allocations = [] } = useTaskHourAllocations(task.id)
+  const { data: rates = [] } = useProfileRates()
+  const setAllocation = useSetTaskHourAllocation()
+  const deleteAllocation = useDeleteTaskHourAllocation()
+  const requestBudget = useRequestWorkstreamBudget()
+
+  const [month, setMonth] = useState(currentMonthStart)
+  const { data: workstreamBudgets = [] } = useWorkstreamBudgets(task.project_id, month)
+  const wb = workstreamBudgets.find((w) => w.department_id === task.department_id)
+
+  const [draftProfileId, setDraftProfileId] = useState('')
+  const [draftHours, setDraftHours] = useState('')
+  const [requestForm, setRequestForm] = useState<{
+    amount: string
+    reason: string
+    pendingAlloc?: { profileId: string; hoursVal: number }
+  } | null>(null)
+  const [carrying, setCarrying] = useState<TaskHourAllocation | null>(null)
+  const [carryAmount, setCarryAmount] = useState('')
+
+  const nameFor = (id: string) => people.find((p) => p.id === id)?.full_name ?? 'Unknown'
+  const rateFor = (id: string) => rates.find((r) => r.profile_id === id)?.bill_rate ?? null
+  const monthRows = allocations.filter((a) => a.budget_month === month)
+
+  if (!task.department_id) {
+    return (
+      <div className="mt-4 rounded-xl border border-cream-300 p-3">
+        <p className="flex items-center gap-2 text-sm font-semibold text-ink-900">
+          <DollarSign size={14} /> Hour allocations
+        </p>
+        <p className="mt-1 text-sm text-ink-500">Assign this task to a workstream to budget hours against it.</p>
+      </div>
+    )
+  }
+
+  function commit(profileId: string, hoursVal: number, forMonth: string) {
+    setAllocation.mutate({
+      task_id: task.id,
+      profile_id: profileId,
+      department_id: task.department_id!,
+      budget_month: forMonth,
+      hours: hoursVal,
+      org_id: task.org_id,
+      created_by: profile!.id,
+    })
+  }
+
+  function tryAdd() {
+    if (!draftProfileId || !draftHours) return
+    const hoursVal = Number(draftHours)
+    if (hoursVal <= 0) return
+    const rate = rateFor(draftProfileId)
+    const cost = rate !== null ? hoursVal * rate : null
+    const remaining = wb?.remaining_amount ?? 0
+    if (cost !== null && cost > remaining + 0.005) {
+      setRequestForm({
+        amount: (cost - remaining).toFixed(2),
+        reason: `${nameFor(draftProfileId)} — ${hoursVal}h on "${task.title}"`,
+        pendingAlloc: { profileId: draftProfileId, hoursVal },
+      })
+      return
+    }
+    commit(draftProfileId, hoursVal, month)
+    setDraftProfileId('')
+    setDraftHours('')
+  }
+
+  function doCarryOver(alloc: TaskHourAllocation, amount: number) {
+    if (!amount || amount <= 0) return
+    const targetMonth = addMonths(alloc.budget_month, 1)
+    const remainder = alloc.hours - amount
+    if (remainder > 0.001) commit(alloc.profile_id, remainder, alloc.budget_month)
+    else deleteAllocation.mutate(alloc.id)
+    const existingTarget = allocations.find(
+      (a) => a.profile_id === alloc.profile_id && a.budget_month === targetMonth,
+    )
+    commit(alloc.profile_id, (existingTarget?.hours ?? 0) + amount, targetMonth)
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-cream-300 p-3">
+      <div className="flex items-center justify-between">
+        <p className="flex items-center gap-2 text-sm font-semibold text-ink-900">
+          <DollarSign size={14} /> Hour allocations
+        </p>
+        <div className="flex items-center gap-1.5 text-xs">
+          <button className="btn-ghost !min-h-0 !py-1 !px-2" onClick={() => setMonth((m) => addMonths(m, -1))}>
+            ←
+          </button>
+          <span className="font-medium text-ink-700">{monthLabel(month)}</span>
+          <button className="btn-ghost !min-h-0 !py-1 !px-2" onClick={() => setMonth((m) => addMonths(m, 1))}>
+            →
+          </button>
+        </div>
+      </div>
+
+      <p className="mt-1 text-xs text-ink-500">
+        {wb
+          ? `${wb.department_name} · ${money(wb.committed_amount)} committed of ${money(wb.allocated_amount)} allocated · ${money(wb.remaining_amount)} remaining`
+          : `No workstream budget allocated for ${monthLabel(month)} yet.`}
+      </p>
+
+      <div className="mt-2 space-y-1.5">
+        {monthRows.length === 0 ? (
+          <p className="text-sm text-ink-500">No hours committed for {monthLabel(month)} yet.</p>
+        ) : (
+          monthRows.map((a) => {
+            const rate = rateFor(a.profile_id)
+            const cost = rate !== null ? a.hours * rate : null
+            return (
+              <div
+                key={a.id}
+                className="flex flex-wrap items-center gap-2 rounded-lg border border-cream-300 px-2.5 py-1.5"
+              >
+                <span className="min-w-[7rem] flex-1 text-sm font-medium text-ink-900">{nameFor(a.profile_id)}</span>
+                {isLeadership ? (
+                  <input
+                    className="input !w-20 text-right"
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    defaultValue={a.hours}
+                    onBlur={(e) => {
+                      const v = Number(e.target.value)
+                      if (v > 0 && v !== a.hours) commit(a.profile_id, v, month)
+                      else if (v <= 0) deleteAllocation.mutate(a.id)
+                    }}
+                  />
+                ) : (
+                  <span className="tabular-nums text-sm">{hours(a.hours)}</span>
+                )}
+                <span className="text-xs text-ink-500">{cost !== null ? money(cost) : 'no rate on file'}</span>
+                {isLeadership && (
+                  <>
+                    <button className="btn-ghost !min-h-0 !py-1 !px-2 text-xs" onClick={() => setCarrying(a)}>
+                      Carry over
+                    </button>
+                    <button
+                      className="btn-ghost !min-h-0 !py-1 !px-2 text-xs"
+                      onClick={() => deleteAllocation.mutate(a.id)}
+                    >
+                      Remove
+                    </button>
+                  </>
+                )}
+              </div>
+            )
+          })
+        )}
+      </div>
+
+      {carrying && (
+        <div className="mt-2 space-y-2 rounded-lg border border-cream-300 bg-cream-50 p-2.5">
+          <p className="text-xs text-ink-600">
+            Move hours from {nameFor(carrying.profile_id)}'s {monthLabel(carrying.budget_month)} allocation to{' '}
+            {monthLabel(addMonths(carrying.budget_month, 1))}.
+          </p>
+          <input
+            className="input !w-24"
+            type="number"
+            min="0"
+            max={carrying.hours}
+            step="0.5"
+            value={carryAmount}
+            onChange={(e) => setCarryAmount(e.target.value)}
+          />
+          <div className="flex gap-2">
+            <button
+              className="btn-ghost text-xs"
+              onClick={() => {
+                setCarrying(null)
+                setCarryAmount('')
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              className="btn-primary text-xs"
+              onClick={() => {
+                doCarryOver(carrying, Number(carryAmount))
+                setCarrying(null)
+                setCarryAmount('')
+              }}
+            >
+              Move
+            </button>
+          </div>
+        </div>
+      )}
+
+      {isLeadership && (
+        <>
+          {assigneeIds.length === 0 ? (
+            <p className="mt-2 text-xs text-ink-500">Assign someone to this task before committing hours.</p>
+          ) : (
+            <div className="mt-2 flex flex-wrap items-end gap-2">
+              <div className="min-w-[10rem] flex-1">
+                <label className="label">Assignee</label>
+                <select className="input" value={draftProfileId} onChange={(e) => setDraftProfileId(e.target.value)}>
+                  <option value="">Choose…</option>
+                  {assigneeIds.map((id) => (
+                    <option key={id} value={id}>
+                      {nameFor(id)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="w-24">
+                <label className="label">Hours</label>
+                <input
+                  className="input"
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={draftHours}
+                  onChange={(e) => setDraftHours(e.target.value)}
+                />
+              </div>
+              <button className="btn-primary" onClick={tryAdd} disabled={!draftProfileId || !draftHours}>
+                Add
+              </button>
+            </div>
+          )}
+
+          {!requestForm && (
+            <button
+              className="btn-ghost !min-h-0 !py-1 !px-2 mt-2 text-xs"
+              onClick={() => setRequestForm({ amount: '', reason: '' })}
+            >
+              Request more budget for this workstream
+            </button>
+          )}
+
+          {requestForm && (
+            <div className="mt-2 space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-2.5">
+              <p className="text-xs font-semibold text-amber-800">
+                {requestForm.pendingAlloc
+                  ? `That would exceed the remaining ${wb?.department_name ?? 'workstream'} budget for ${monthLabel(month)}.`
+                  : `Ask the executive for more room in the ${wb?.department_name ?? 'workstream'} budget for ${monthLabel(month)}.`}
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  className="input"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="Amount"
+                  value={requestForm.amount}
+                  onChange={(e) => setRequestForm({ ...requestForm, amount: e.target.value })}
+                />
+                <input
+                  className="input"
+                  placeholder="Reason"
+                  value={requestForm.reason}
+                  onChange={(e) => setRequestForm({ ...requestForm, reason: e.target.value })}
+                />
+              </div>
+              <div className="flex gap-2">
+                <button className="btn-ghost text-xs" onClick={() => setRequestForm(null)}>
+                  Cancel
+                </button>
+                <button
+                  className="btn-primary text-xs"
+                  disabled={!requestForm.amount || Number(requestForm.amount) <= 0 || requestBudget.isPending}
+                  onClick={async () => {
+                    await requestBudget.mutateAsync({
+                      projectId: task.project_id,
+                      month,
+                      departmentId: task.department_id!,
+                      amount: Number(requestForm.amount),
+                      reason: requestForm.reason || undefined,
+                    })
+                    if (requestForm.pendingAlloc) {
+                      commit(requestForm.pendingAlloc.profileId, requestForm.pendingAlloc.hoursVal, month)
+                      setDraftProfileId('')
+                      setDraftHours('')
+                    }
+                    setRequestForm(null)
+                  }}
+                >
+                  {requestForm.pendingAlloc ? 'Commit hours & request budget' : 'Submit request'}
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
   )
 }
 
@@ -933,7 +1307,7 @@ function NewTaskPanel({
           />
           {departmentId && (
             <p className="mt-1 text-xs text-ink-500">
-              Leave assignees blank to let the department's lead pick who on their team does it.
+              Leave assignees blank to let the workstream's lead pick who on their team does it.
             </p>
           )}
         </div>

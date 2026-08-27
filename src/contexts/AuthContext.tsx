@@ -25,6 +25,10 @@ interface AuthContextValue {
   signInWithMagicLink: (email: string) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
+  /** Sets a new password on the current session — works whether the person
+   *  signed in with a password or a magic link. No re-auth challenge; relies
+   *  on the active Supabase session the same way the rest of the app does. */
+  updatePassword: (password: string) => Promise<{ error: string | null }>
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -99,6 +103,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfile(null)
   }
 
+  async function updatePassword(password: string) {
+    const { error } = await supabase.auth.updateUser({ password })
+    return { error: error?.message ?? null }
+  }
+
   const value: AuthContextValue = {
     session,
     user: session?.user ?? null,
@@ -120,6 +129,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signInWithMagicLink,
     signOut,
     refreshProfile,
+    updatePassword,
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

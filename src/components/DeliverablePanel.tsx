@@ -1,10 +1,36 @@
 import { useState } from 'react'
-import { ArrowRight, Check, RotateCcw, Send, X } from 'lucide-react'
-import type { Deliverable, DeliverableStage, Profile } from '@/lib/types'
+import {
+  ArrowRight,
+  Check,
+  Download,
+  ExternalLink,
+  Link2,
+  Paperclip,
+  Pencil,
+  RotateCcw,
+  Send,
+  Trash2,
+  X,
+} from 'lucide-react'
+import type { Deliverable, DeliverableAttachment, DeliverableStage, Profile } from '@/lib/types'
 import { STAGE_CLASS, STAGE_LABEL, longDate, relativeTime, shortDate } from '@/lib/format'
-import { useDeliverableReviews, useTransitionDeliverable } from '@/lib/queries'
+import {
+  useAddDeliverableAttachment,
+  useAddDeliverableComment,
+  useDeleteDeliverable,
+  useDeleteDeliverableAttachment,
+  useDeleteDeliverableComment,
+  useDeliverableAttachments,
+  useDeliverableReviews,
+  useDeliverableComments,
+  useTasks,
+  useTransitionDeliverable,
+  useUpdateDeliverable,
+} from '@/lib/queries'
 import { useAuth } from '@/contexts/AuthContext'
-import { Avatar, Spinner } from './ui'
+import { supabase } from '@/lib/supabaseClient'
+import { Avatar, ConfirmDialog, Spinner } from './ui'
+import { DeliverableFormFields, type DeliverableFormValues } from './DeliverableForm'
 
 /** Mirrors the transitions the database will actually accept. */
 const NEXT_STAGES: Record<DeliverableStage, DeliverableStage[]> = {
@@ -40,15 +66,24 @@ export function DeliverablePanel({
   projectName: string
   onClose: () => void
 }) {
-  const { profile } = useAuth()
+  const { profile, isLeadership } = useAuth()
   const { data: reviews = [], isLoading } = useDeliverableReviews(deliverable.id)
+  const { data: tasks = [] } = useTasks(deliverable.project_id)
+  const { data: comments = [], isLoading: commentsLoading } = useDeliverableComments(deliverable.id)
   const transition = useTransitionDeliverable()
+  const update = useUpdateDeliverable()
+  const deleteDeliverable = useDeleteDeliverable()
+  const addComment = useAddDeliverableComment()
+  const deleteComment = useDeleteDeliverableComment()
+
   const [pending, setPending] = useState<DeliverableStage | null>(null)
   const [comment, setComment] = useState('')
   const [error, setError] = useState<string | null>(null)
 
   const nameOf = (id: string | null) => people.find((p) => p.id === id)?.full_name ?? 'Unassigned'
   const isOwner = deliverable.owner_id === profile?.id
+  const isReviewer = deliverable.reviewer_id === profile?.id
+  const canEdit = isOwner || isReviewer || isLeadership
   const needsComment = pending === 'revisions_requested'
 
   async function go(stage: DeliverableStage) {
@@ -67,6 +102,139 @@ export function DeliverablePanel({
     }
   }
 
+  // -------------------------------------------------------------- editing
+  const [editing, setEditing] = useState(false)
+  const [values, setValues] = useState<DeliverableFormValues>({
+    title: deliverable.title,
+    description: deliverable.description ?? '',
+    taskId: deliverable.task_id ?? '',
+    ownerId: deliverable.owner_id ?? '',
+    reviewerId: deliverable.reviewer_id ?? '',
+    dueDate: deliverable.due_date ?? '',
+  })
+
+  function patch(p: Partial<DeliverableFormValues>) {
+    setValues((v) => ({ ...v, ...p }))
+  }
+
+  async function saveEdit() {
+    if (!values.title.trim()) return
+    await update.mutateAsync({
+      id: deliverable.id,
+      patch: {
+        title: values.title.trim(),
+        description: values.description.trim() || null,
+        task_id: values.taskId || null,
+        owner_id: values.ownerId || null,
+        reviewer_id: values.reviewerId || null,
+        due_date: values.dueDate || null,
+      },
+    })
+    setEditing(false)
+  }
+
+  // ------------------------------------------------------------ attachments
+  const { data: attachments = [], isLoading: attachmentsLoading } = useDeliverableAttachments(deliverable.id)
+  const addAttachment = useAddDeliverableAttachment()
+  const deleteAttachment = useDeleteDeliverableAttachment()
+  const [uploading, setUploading] = useState(false)
+  const [attachError, setAttachError] = useState<string | null>(null)
+  const [linkInput, setLinkInput] = useState('')
+  const [addingLink, setAddingLink] = useState(false)
+
+  async function uploadFiles(files: FileList) {
+    if (!profile) return
+    setUploading(true)
+    setAttachError(null)
+    try {
+      for (const file of Array.from(files)) {
+        // Timestamp-prefixed so uploading the same filename twice adds a
+        // second attachment instead of colliding/overwriting the first.
+        const path = `${deliverable.org_id}/${deliverable.id}/${Date.now()}-${file.name}`
+        const { error: uploadError } = await supabase.storage
+          .from('deliverable-files')
+          .upload(path, file, { contentType: file.type })
+        if (uploadError) throw uploadError
+        await addAttachment.mutateAsync({
+          org_id: deliverable.org_id,
+          deliverable_id: deliverable.id,
+          added_by: profile.id,
+          kind: 'file',
+          file_path: path,
+          url: null,
+          label: file.name,
+          file_size: file.size,
+          content_type: file.type || null,
+        })
+      }
+    } catch (e) {
+      setAttachError((e as Error).message)
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  async function saveLink() {
+    if (!linkInput.trim() || !profile) return
+    await addAttachment.mutateAsync({
+      org_id: deliverable.org_id,
+      deliverable_id: deliverable.id,
+      added_by: profile.id,
+      kind: 'link',
+      file_path: null,
+      url: linkInput.trim(),
+      label: linkInput.trim(),
+      file_size: null,
+      content_type: null,
+    })
+    setLinkInput('')
+    setAddingLink(false)
+  }
+
+  async function openAttachment(a: DeliverableAttachment) {
+    setAttachError(null)
+    if (a.kind === 'link') {
+      window.open(a.url!, '_blank', 'noopener')
+      return
+    }
+    const { data, error: signError } = await supabase.storage
+      .from('deliverable-files')
+      .createSignedUrl(a.file_path!, 600)
+    if (signError || !data?.signedUrl) {
+      setAttachError(signError?.message ?? "Couldn't open file")
+      return
+    }
+    window.open(data.signedUrl, '_blank', 'noopener')
+  }
+
+  async function removeAttachment(a: DeliverableAttachment) {
+    if (a.kind === 'file' && a.file_path) {
+      await supabase.storage.from('deliverable-files').remove([a.file_path])
+    }
+    deleteAttachment.mutate({ id: a.id, deliverableId: deliverable.id })
+  }
+
+  // -------------------------------------------------------------- comments
+  const [commentDraft, setCommentDraft] = useState('')
+
+  async function postComment() {
+    if (!profile || !commentDraft.trim()) return
+    await addComment.mutateAsync({
+      org_id: deliverable.org_id,
+      deliverable_id: deliverable.id,
+      author_id: profile.id,
+      body: commentDraft.trim(),
+    })
+    setCommentDraft('')
+  }
+
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+
+  function del() {
+    setConfirmingDelete(false)
+    deleteDeliverable.mutate(deliverable.id, { onSuccess: onClose })
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-brand-800/30" onClick={onClose} />
@@ -79,41 +247,164 @@ export function DeliverablePanel({
         </div>
 
         <div className="p-5">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-semibold text-ink-900">{deliverable.title}</h2>
-              <p className="mt-0.5 text-sm text-ink-500">
-                {projectName} · v{deliverable.version} · due {shortDate(deliverable.due_date)}
-              </p>
+          {editing ? (
+            <div className="rounded-xl border border-cream-300 p-4">
+              <DeliverableFormFields values={values} onChange={patch} people={people} tasks={tasks} />
+              <div className="mt-3 flex gap-2">
+                <button
+                  className="btn-primary"
+                  disabled={!values.title.trim() || update.isPending}
+                  onClick={() => void saveEdit()}
+                >
+                  Save
+                </button>
+                <button className="btn-ghost" onClick={() => setEditing(false)}>
+                  Cancel
+                </button>
+              </div>
             </div>
-            <span className={`chip shrink-0 ${STAGE_CLASS[deliverable.stage]}`}>
-              {STAGE_LABEL[deliverable.stage]}
-            </span>
-          </div>
+          ) : (
+            <>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-semibold text-ink-900">{deliverable.title}</h2>
+                    {canEdit && (
+                      <button
+                        className="text-ink-400 hover:text-brand-700"
+                        title="Edit"
+                        onClick={() => setEditing(true)}
+                      >
+                        <Pencil size={13} />
+                      </button>
+                    )}
+                  </div>
+                  <p className="mt-0.5 text-sm text-ink-500">
+                    {projectName} · v{deliverable.version} · due {shortDate(deliverable.due_date)}
+                  </p>
+                </div>
+                <span className={`chip shrink-0 ${STAGE_CLASS[deliverable.stage]}`}>
+                  {STAGE_LABEL[deliverable.stage]}
+                </span>
+              </div>
 
-          {deliverable.description && (
-            <p className="mt-3 text-sm text-ink-600">{deliverable.description}</p>
+              {deliverable.description && (
+                <p className="mt-3 text-sm text-ink-600">{deliverable.description}</p>
+              )}
+
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <div className="rounded-xl border border-cream-300 p-3">
+                  <p className="label !mb-1">Owner</p>
+                  <span className="flex items-center gap-2 text-sm">
+                    <Avatar name={nameOf(deliverable.owner_id)} size={22} />
+                    {nameOf(deliverable.owner_id)}
+                  </span>
+                </div>
+                <div className="rounded-xl border border-cream-300 p-3">
+                  <p className="label !mb-1">Reviewer</p>
+                  <span className="flex items-center gap-2 text-sm">
+                    <Avatar name={nameOf(deliverable.reviewer_id)} size={22} />
+                    {nameOf(deliverable.reviewer_id)}
+                  </span>
+                </div>
+              </div>
+            </>
           )}
 
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            <div className="rounded-xl border border-cream-300 p-3">
-              <p className="label !mb-1">Owner</p>
-              <span className="flex items-center gap-2 text-sm">
-                <Avatar name={nameOf(deliverable.owner_id)} size={22} />
-                {nameOf(deliverable.owner_id)}
-              </span>
-            </div>
-            <div className="rounded-xl border border-cream-300 p-3">
-              <p className="label !mb-1">Reviewer</p>
-              <span className="flex items-center gap-2 text-sm">
-                <Avatar name={nameOf(deliverable.reviewer_id)} size={22} />
-                {nameOf(deliverable.reviewer_id)}
-              </span>
-            </div>
+          {/* Attachments --------------------------------------------------- */}
+          <div className="mt-4 rounded-xl border border-cream-300 p-4">
+            <p className="mb-2 text-sm font-semibold text-ink-900">
+              Attachments{attachments.length > 0 && ` (${attachments.length})`}
+            </p>
+
+            {attachmentsLoading ? (
+              <Spinner label="Loading attachments" />
+            ) : attachments.length === 0 ? (
+              <p className="text-sm text-ink-500">Nothing attached yet.</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {attachments.map((a) => (
+                  <li
+                    key={a.id}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-cream-200 px-3 py-2"
+                  >
+                    <button
+                      className="flex min-w-0 items-center gap-2 text-sm text-brand-700 hover:underline"
+                      onClick={() => void openAttachment(a)}
+                    >
+                      {a.kind === 'link' ? (
+                        <Link2 size={15} className="shrink-0" />
+                      ) : (
+                        <Paperclip size={15} className="shrink-0" />
+                      )}
+                      <span className="truncate">{a.label}</span>
+                      {a.kind === 'link' ? (
+                        <ExternalLink size={12} className="shrink-0" />
+                      ) : (
+                        <Download size={12} className="shrink-0" />
+                      )}
+                    </button>
+                    {(canEdit || a.added_by === profile?.id) && (
+                      <button
+                        className="shrink-0 text-ink-400 hover:text-rose-600"
+                        onClick={() => void removeAttachment(a)}
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {canEdit && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <label className="btn-ghost cursor-pointer !py-1.5 !px-3 text-xs">
+                  <Paperclip size={13} /> Add file
+                  <input
+                    type="file"
+                    multiple
+                    className="hidden"
+                    disabled={uploading}
+                    onChange={(e) => {
+                      const files = e.target.files
+                      e.target.value = ''
+                      if (files && files.length > 0) void uploadFiles(files)
+                    }}
+                  />
+                </label>
+                {addingLink ? (
+                  <>
+                    <input
+                      className="input !w-auto flex-1 !py-1.5 text-xs"
+                      placeholder="https://..."
+                      value={linkInput}
+                      onChange={(e) => setLinkInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') void saveLink()
+                      }}
+                      autoFocus
+                    />
+                    <button className="btn-primary !py-1.5 !px-3 text-xs" onClick={() => void saveLink()}>
+                      Save
+                    </button>
+                    <button className="btn-ghost !py-1.5 !px-3 text-xs" onClick={() => setAddingLink(false)}>
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <button className="btn-ghost !py-1.5 !px-3 text-xs" onClick={() => setAddingLink(true)}>
+                    <Link2 size={13} /> Add a link
+                  </button>
+                )}
+              </div>
+            )}
+            {uploading && <p className="mt-2 text-xs text-ink-500">Uploading…</p>}
+            {attachError && <p className="mt-2 text-xs text-rose-600">{attachError}</p>}
           </div>
 
           {/* Actions --------------------------------------------------- */}
-          <div className="mt-5 rounded-xl border border-cream-300 p-4">
+          <div className="mt-4 rounded-xl border border-cream-300 p-4">
             <p className="mb-3 text-sm font-semibold text-ink-900">Move this forward</p>
 
             {(needsComment || pending) && (
@@ -194,8 +485,85 @@ export function DeliverablePanel({
               </ol>
             )}
           </div>
+
+          {/* Comments ---------------------------------------------------- */}
+          <div className="mt-6">
+            <p className="mb-3 text-sm font-semibold text-ink-900">Comments</p>
+            {commentsLoading ? (
+              <Spinner label="Loading comments" />
+            ) : comments.length === 0 ? (
+              <p className="text-sm text-ink-500">No comments yet.</p>
+            ) : (
+              <ul className="space-y-3">
+                {comments.map((c) => (
+                  <li key={c.id} className="flex items-start gap-2.5">
+                    <Avatar name={nameOf(c.author_id)} size={24} />
+                    <div className="min-w-0 flex-1 rounded-xl bg-cream-100 px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs font-semibold text-ink-900">{nameOf(c.author_id)}</p>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-[11px] text-ink-400">{relativeTime(c.created_at)}</span>
+                          {(c.author_id === profile?.id || isLeadership) && (
+                            <button
+                              className="text-ink-400 hover:text-rose-600"
+                              onClick={() =>
+                                deleteComment.mutate({ id: c.id, deliverableId: deliverable.id })
+                              }
+                            >
+                              <X size={12} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <p className="mt-0.5 whitespace-pre-wrap text-sm text-ink-700">{c.body}</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div className="mt-3 flex gap-2">
+              <input
+                className="input"
+                placeholder="Add a comment…"
+                value={commentDraft}
+                onChange={(e) => setCommentDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void postComment()
+                }}
+              />
+              <button
+                className="btn-primary !px-3"
+                disabled={!commentDraft.trim() || addComment.isPending}
+                onClick={() => void postComment()}
+              >
+                Post
+              </button>
+            </div>
+          </div>
+
+          {isLeadership && (
+            <div className="mt-6 border-t border-cream-200 pt-4">
+              <button
+                className="text-xs text-ink-400 hover:text-rose-600"
+                onClick={() => setConfirmingDelete(true)}
+              >
+                <Trash2 size={12} className="mr-1 inline" /> Delete deliverable
+              </button>
+            </div>
+          )}
         </div>
       </div>
+
+      {confirmingDelete && (
+        <ConfirmDialog
+          title={`Delete "${deliverable.title}"?`}
+          message="This can't be undone."
+          busy={deleteDeliverable.isPending}
+          onConfirm={del}
+          onCancel={() => setConfirmingDelete(false)}
+        />
+      )}
     </div>
   )
 }

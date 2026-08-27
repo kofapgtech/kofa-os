@@ -1,13 +1,23 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Bell, CheckCheck, X } from 'lucide-react'
 import { useNotifications } from '@/contexts/NotificationsContext'
 import { iconForNotification } from '@/lib/notificationIcons'
+import { resolveNotificationHref } from '@/lib/notificationLink'
 import { relativeTime } from '@/lib/format'
+import type { AppNotification } from '@/lib/types'
 
 export function NotificationBell() {
   const { items, unread, markRead, markAllRead } = useNotifications()
   const [open, setOpen] = useState(false)
+  const navigate = useNavigate()
+
+  async function openNotification(n: AppNotification) {
+    setOpen(false)
+    void markRead(n.id)
+    const href = await resolveNotificationHref(n)
+    if (href) navigate(href)
+  }
 
   return (
     <div className="relative">
@@ -44,7 +54,7 @@ export function NotificationBell() {
             {items.slice(0, 40).map((n) => (
               <button
                 key={n.id}
-                onClick={() => void markRead(n.id)}
+                onClick={() => void openNotification(n)}
                 className={`flex w-full gap-3 border-b border-cream-200 px-4 py-3 text-left hover:bg-cream-100 ${
                   n.read_at ? '' : 'bg-brand-50/40'
                 }`}

@@ -1,8 +1,10 @@
 import { CheckCheck, CircleDollarSign, FileCheck2, ListChecks } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { useNotifications } from '@/contexts/NotificationsContext'
 import { EmptyState, PageHeader } from '@/components/ui'
 import { relativeTime } from '@/lib/format'
-import type { NotificationType } from '@/lib/types'
+import { resolveNotificationHref } from '@/lib/notificationLink'
+import type { AppNotification, NotificationType } from '@/lib/types'
 
 function iconFor(type: NotificationType) {
   if (type === 'budget_threshold') return <CircleDollarSign size={18} className="text-amber-600" />
@@ -12,6 +14,13 @@ function iconFor(type: NotificationType) {
 
 export function NotificationsPage() {
   const { items, unread, markRead, markAllRead } = useNotifications()
+  const navigate = useNavigate()
+
+  async function openNotification(n: AppNotification) {
+    void markRead(n.id)
+    const href = await resolveNotificationHref(n)
+    if (href) navigate(href)
+  }
 
   return (
     <div>
@@ -37,7 +46,7 @@ export function NotificationsPage() {
           {items.map((n) => (
             <button
               key={n.id}
-              onClick={() => void markRead(n.id)}
+              onClick={() => void openNotification(n)}
               className={`flex w-full gap-3 px-4 py-3.5 text-left hover:bg-cream-100 ${
                 n.read_at ? '' : 'bg-brand-50/40'
               }`}

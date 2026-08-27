@@ -1,16 +1,30 @@
 import { useState, type ChangeEvent, type ReactNode } from 'react'
+import { supabase } from '@/lib/supabaseClient'
 import { Check, Paperclip, UserPlus, Users2, X } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import {
+  useAddEmployeeAttachment,
   useAllProfiles,
+  useDeleteEmployeeAttachment,
   useDepartments,
+  useEmployeeAttachments,
   useInviteEmployee,
   useProfileRates,
   useUpdateCostRate,
   useUpdateProfile,
 } from '@/lib/queries'
-import { EmptyState, Modal, ModalHeader, PageHeader, Spinner } from '@/components/ui'
-import type { Department, EmploymentType, Profile, ProfileRate, UserRole } from '@/lib/types'
+import {
+  ConfirmDialog,
+  EmptyState,
+  Modal,
+  ModalHeader,
+  PageHeader,
+  SortableTh,
+  Spinner,
+  sortRows,
+  useTableSort,
+} from '@/components/ui'
+import type { Department, EmployeeAttachment, EmploymentType, Profile, ProfileRate, UserRole } from '@/lib/types'
 
 const ALL_ROLES: UserRole[] = ['staff', 'dept_lead', 'billing_finance', 'hr_manager', 'executive', 'admin']
 // What an HR viewer may assign to someone else — never a privileged tier,
@@ -195,6 +209,33 @@ function EmployeesCard({ isAdmin, isHR }: { isAdmin: boolean; isHR: boolean }) {
   const { data: departments = [] } = useDepartments()
   const { data: rates = [] } = useProfileRates()
   const [editing, setEditing] = useState<Profile | null>(null)
+  const sort = useTableSort<
+    'name' | 'title' | 'email' | 'role' | 'type' | 'department' | 'capacity' | 'status'
+  >()
+
+  const statusRank = (p: Profile) => (p.termination_date ? 2 : p.is_active ? 0 : 1)
+  const sortedPeople = sortRows(people, sort.sortKey, sort.sortDir, (p, key) => {
+    switch (key) {
+      case 'name':
+        return p.full_name.toLowerCase()
+      case 'title':
+        return p.title?.toLowerCase() ?? null
+      case 'email':
+        return p.email.toLowerCase()
+      case 'role':
+        return ROLE_LABEL[p.role]
+      case 'type':
+        return EMPLOYMENT_TYPE_LABEL[p.employment_type]
+      case 'department':
+        return departments.find((d) => d.id === p.department_id)?.name.toLowerCase() ?? null
+      case 'capacity':
+        return p.capacity_hours_per_week
+      case 'status':
+        return statusRank(p)
+      default:
+        return null
+    }
+  })
 
   return (
     <Section title="Employees" icon={<Users2 size={16} className="text-brand-600" />}>
@@ -207,18 +248,18 @@ function EmployeesCard({ isAdmin, isHR }: { isAdmin: boolean; isHR: boolean }) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-cream-300 text-left text-xs font-semibold uppercase tracking-wide text-ink-500">
-                <th className="py-2 pr-3">Name</th>
-                <th className="py-2 pr-3">Title</th>
-                <th className="py-2 pr-3">Email</th>
-                <th className="py-2 pr-3">Role</th>
-                <th className="py-2 pr-3">Type</th>
-                <th className="py-2 pr-3">Department</th>
-                <th className="py-2 pr-3">Capacity</th>
-                <th className="py-2 pr-3">Status</th>
+                <SortableTh label="Name" sortKey="name" sort={sort} thClassName="py-2 pr-3" />
+                <SortableTh label="Title" sortKey="title" sort={sort} thClassName="py-2 pr-3" />
+                <SortableTh label="Email" sortKey="email" sort={sort} thClassName="py-2 pr-3" />
+                <SortableTh label="Role" sortKey="role" sort={sort} thClassName="py-2 pr-3" />
+                <SortableTh label="Type" sortKey="type" sort={sort} thClassName="py-2 pr-3" />
+                <SortableTh label="Department" sortKey="department" sort={sort} thClassName="py-2 pr-3" />
+                <SortableTh label="Capacity" sortKey="capacity" sort={sort} thClassName="py-2 pr-3" />
+                <SortableTh label="Status" sortKey="status" sort={sort} thClassName="py-2 pr-3" />
               </tr>
             </thead>
             <tbody>
-              {people.map((p) => {
+              {sortedPeople.map((p) => {
                 const dept = departments.find((d) => d.id === p.department_id)
                 return (
                   <tr
@@ -504,7 +545,7 @@ function EmployeeModal({
         </div>
       )}
 
-      {tab === 'attachments' && showExtraTabs && <AttachmentsTab />}
+      {tab === 'attachments' && showExtraTabs && <AttachmentsTab employee={person} />}
 
       {tab === 'settings' && showExtraTabs && (
         <div className="space-y-3">
@@ -574,52 +615,122 @@ function EmployeeModal({
 }
 
 /**
- * Shell only — files live in local state and vanish when the modal closes.
- * Real persistence (Supabase Storage bucket + a metadata table) is a
- * follow-up; this establishes the tab's shape first.
+ * Real persistence: files go to the private `employee-files` storage bucket
+ * (path `${org_id}/${employee_id}/${timestamp}-${filename}`), metadata rows
+ * live in `employee_attachments`. Until a human runs the bucket migration
+ * (`supabase/migrations/..._employee_files_bucket.sql` -- blocked from
+ * running automatically, same as the avatars bucket), uploads fail with a
+ * "Bucket not found" error, which is caught and surfaced as a friendlier
+ * message below rather than a raw Supabase error string.
  */
-function AttachmentsTab() {
-  const [files, setFiles] = useState<{ name: string; size: number; addedAt: string }[]>([])
+function AttachmentsTab({ employee }: { employee: Profile }) {
+  const { profile } = useAuth()
+  const { data: attachments = [], isLoading } = useEmployeeAttachments(employee.id)
+  const addAttachment = useAddEmployeeAttachment()
+  const deleteAttachment = useDeleteEmployeeAttachment()
+  const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null)
 
-  function onPick(e: ChangeEvent<HTMLInputElement>) {
+  async function onPick(e: ChangeEvent<HTMLInputElement>) {
     const picked = e.target.files
-    if (!picked || picked.length === 0) return
-    const next = Array.from(picked).map((f) => ({ name: f.name, size: f.size, addedAt: new Date().toISOString() }))
-    setFiles((cur) => [...cur, ...next])
-    e.target.value = ''
+    if (!picked || picked.length === 0 || !profile) return
+    setUploading(true)
+    setError(null)
+    try {
+      for (const file of Array.from(picked)) {
+        const path = `${employee.org_id}/${employee.id}/${Date.now()}-${file.name}`
+        const { error: uploadError } = await supabase.storage
+          .from('employee-files')
+          .upload(path, file, { contentType: file.type })
+        if (uploadError) throw uploadError
+        await addAttachment.mutateAsync({
+          org_id: employee.org_id,
+          employee_id: employee.id,
+          uploaded_by: profile.id,
+          file_path: path,
+          file_name: file.name,
+          file_size: file.size,
+          content_type: file.type || null,
+        })
+      }
+    } catch (err) {
+      const message = (err as Error).message
+      setError(
+        message.includes('Bucket not found')
+          ? "File storage isn't set up yet -- ask an admin to run the employee-files bucket migration."
+          : message,
+      )
+    } finally {
+      setUploading(false)
+      e.target.value = ''
+    }
+  }
+
+  async function openAttachment(a: EmployeeAttachment) {
+    setError(null)
+    const { data, error: signError } = await supabase.storage
+      .from('employee-files')
+      .createSignedUrl(a.file_path, 600)
+    if (signError || !data?.signedUrl) {
+      setError(signError?.message ?? "Couldn't open file")
+      return
+    }
+    window.open(data.signedUrl, '_blank', 'noopener')
+  }
+
+  async function confirmDelete() {
+    const a = attachments.find((x) => x.id === confirmingDeleteId)
+    setConfirmingDeleteId(null)
+    if (!a) return
+    await supabase.storage.from('employee-files').remove([a.file_path])
+    deleteAttachment.mutate({ id: a.id, employeeId: employee.id })
   }
 
   return (
     <div className="space-y-3">
-      <p className="rounded-lg bg-accent-100 px-3 py-2 text-xs text-accent-700">
-        Not yet saved permanently — this list resets when the modal closes. Storage wiring is coming in a follow-up.
-      </p>
+      {error && <p className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</p>}
       <label className="btn-ghost w-full cursor-pointer justify-center">
-        <Paperclip size={15} /> Add file
-        <input type="file" multiple className="hidden" onChange={onPick} />
+        <Paperclip size={15} /> {uploading ? 'Uploading...' : 'Add file'}
+        <input type="file" multiple className="hidden" disabled={uploading} onChange={(e) => void onPick(e)} />
       </label>
-      {files.length === 0 ? (
+      {isLoading ? (
+        <Spinner />
+      ) : attachments.length === 0 ? (
         <p className="text-sm text-ink-500">No attachments added.</p>
       ) : (
         <ul className="space-y-1.5">
-          {files.map((f, i) => (
+          {attachments.map((a) => (
             <li
-              key={i}
+              key={a.id}
               className="flex items-center justify-between rounded-lg border border-cream-300 px-3 py-2 text-sm"
             >
-              <span className="truncate text-ink-900">{f.name}</span>
+              <button
+                type="button"
+                className="truncate text-left text-ink-900 hover:text-brand-700 hover:underline"
+                onClick={() => void openAttachment(a)}
+              >
+                {a.file_name}
+              </button>
               <span className="ml-2 flex shrink-0 items-center gap-2 text-xs text-ink-500">
-                {(f.size / 1024).toFixed(0)} KB
-                <button
-                  className="text-ink-400 hover:text-rose-600"
-                  onClick={() => setFiles((cur) => cur.filter((_, idx) => idx !== i))}
-                >
+                {a.file_size !== null ? `${(a.file_size / 1024).toFixed(0)} KB` : ''}
+                <button className="text-ink-400 hover:text-rose-600" onClick={() => setConfirmingDeleteId(a.id)}>
                   <X size={14} />
                 </button>
               </span>
             </li>
           ))}
         </ul>
+      )}
+
+      {confirmingDeleteId && (
+        <ConfirmDialog
+          title="Delete this attachment?"
+          message="This removes the file permanently."
+          busy={deleteAttachment.isPending}
+          onConfirm={() => void confirmDelete()}
+          onCancel={() => setConfirmingDeleteId(null)}
+        />
       )}
     </div>
   )

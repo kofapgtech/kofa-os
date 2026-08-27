@@ -19,6 +19,7 @@ import { AdminDepartments } from '@/pages/AdminDepartments'
 import { PayrollPayment } from '@/pages/PayrollPayment'
 import { PayrollRecords } from '@/pages/PayrollRecords'
 import { NotificationsPage } from '@/pages/NotificationsPage'
+import { ProfilePage } from '@/pages/Profile'
 import { Portal } from '@/pages/Portal'
 
 const queryClient = new QueryClient({
@@ -58,11 +59,12 @@ export default function App() {
               <Route path="/accounts" element={<Accounts />} />
               <Route path="/admin" element={<Navigate to="/admin/employees" replace />} />
               <Route path="/admin/employees" element={<AdminEmployees />} />
-              <Route path="/admin/departments" element={<AdminDepartments />} />
+              <Route path="/admin/workstreams" element={<AdminDepartments />} />
               <Route path="/payroll" element={<Navigate to="/payroll/payment" replace />} />
               <Route path="/payroll/payment" element={<PayrollPayment />} />
               <Route path="/payroll/records" element={<PayrollRecords />} />
               <Route path="/notifications" element={<NotificationsPage />} />
+              <Route path="/profile" element={<ProfilePage />} />
             </Route>
 
             <Route path="*" element={<Navigate to="/" replace />} />

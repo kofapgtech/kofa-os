@@ -6,10 +6,13 @@ import type {
   Account,
   AccountStatus,
   Deliverable,
+  DeliverableAttachment,
+  DeliverableComment,
   DeliverableReview,
   DeliverableStage,
   Department,
   DepartmentLoad,
+  EmployeeAttachment,
   PayPeriod,
   PayrollEntry,
   PayrollLineItem,
@@ -19,13 +22,17 @@ import type {
   ProfileRate,
   Project,
   ProjectBudget,
+  ProjectMonthlyBudgetRow,
   ShareLink,
   Task,
   TaskAssignee,
+  TaskHourAllocation,
   TaskTimeRequest,
   TimeEntry,
   UserRole,
   UserUtilization,
+  WorkstreamBudgetRequest,
+  WorkstreamBudgetRow,
 } from './types'
 
 /** Anything that changes hours also changes money — invalidate together. */
@@ -99,6 +106,7 @@ export function useUpdateProfile() {
           | 'termination_reason'
           | 'last_day_worked'
           | 'rehire_eligible'
+          | 'avatar_url'
         >
       >
     }) => {
@@ -162,10 +170,6 @@ export function useInviteEmployee() {
       employment_type: 'employee' | 'contractor'
     }) => {
       const { data, error } = await supabase.functions.invoke('invite-employee', {
-        // The invite email's link needs to land back on whichever origin is
-        // actually running the app - localhost while testing, the real
-        // deploy in production - so the browser sends its own origin rather
-        // than the function guessing from a fixed secret.
         body: { ...payload, redirect_to: window.location.origin },
       })
       if (error) throw new Error(error.message)
@@ -315,6 +319,186 @@ export function useUtilization() {
   })
 }
 
+// ------------------------------------------------------- monthly budgets
+
+/** v_project_monthly_budget: every month of a project's split, plus how
+ *  much of each month is already allocated to workstreams. */
+export function useProjectMonthlyBudgets(projectId: string | undefined) {
+  return useQuery({
+    queryKey: ['monthly-budgets', projectId ?? 'none'],
+    enabled: !!projectId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('v_project_monthly_budget')
+        .select('*')
+        .eq('project_id', projectId!)
+        .order('month')
+      return unwrap<ProjectMonthlyBudgetRow[]>(data, error)
+    },
+  })
+}
+
+/** Replaces the full draft monthly split for a project. Approved months are
+ *  locked server-side (unapprove first); the whole set must sum to the
+ *  project's budget_amount, or the RPC rejects it. */
+export function useSetProjectMonthlyBudgets() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (args: { projectId: string; entries: { month: string; amount: number }[] }) => {
+      const { error } = await supabase.rpc('set_project_monthly_budgets', {
+        p_project_id: args.projectId,
+        p_entries: args.entries,
+      })
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['monthly-budgets', vars.projectId] })
+      toast.success('Monthly budget saved')
+    },
+    onError: (err: Error) => toast.error("Couldn't save monthly budget", err.message),
+  })
+}
+
+export function useApproveMonthlyBudget() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (args: { id: string; projectId: string }) => {
+      const { error } = await supabase.rpc('approve_project_monthly_budget', { p_id: args.id })
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['monthly-budgets', vars.projectId] })
+      toast.success('Month approved')
+    },
+    onError: (err: Error) => toast.error("Couldn't approve", err.message),
+  })
+}
+
+export function useUnapproveMonthlyBudget() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (args: { id: string; projectId: string }) => {
+      const { error } = await supabase.rpc('unapprove_project_monthly_budget', { p_id: args.id })
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['monthly-budgets', vars.projectId] })
+      qc.invalidateQueries({ queryKey: ['workstream-budgets', vars.projectId] })
+    },
+    onError: (err: Error) => toast.error("Couldn't reopen month", err.message),
+  })
+}
+
+// ---------------------------------------------------------- workstream budgets
+
+/** v_workstream_budget: one project's workstream allocations for a given
+ *  month (or every month, if no month is passed), with committed/remaining
+ *  computed from task_hour_allocations. */
+export function useWorkstreamBudgets(projectId: string | undefined, month?: string) {
+  return useQuery({
+    queryKey: ['workstream-budgets', projectId ?? 'none', month ?? 'all'],
+    enabled: !!projectId,
+    queryFn: async () => {
+      let q = supabase.from('v_workstream_budget').select('*').eq('project_id', projectId!)
+      if (month) q = q.eq('month', month)
+      const { data, error } = await q.order('month')
+      return unwrap<WorkstreamBudgetRow[]>(data, error)
+    },
+  })
+}
+
+/** Replaces a month's full workstream split in one shot. The RPC rejects it
+ *  if the total exceeds that month's budget. */
+export function useSetWorkstreamBudgets() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (args: {
+      projectId: string
+      month: string
+      entries: { department_id: string; amount: number }[]
+    }) => {
+      const { error } = await supabase.rpc('set_workstream_budgets', {
+        p_project_id: args.projectId,
+        p_month: args.month,
+        p_entries: args.entries,
+      })
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['workstream-budgets', vars.projectId] })
+      toast.success('Workstream budgets saved')
+    },
+    onError: (err: Error) => toast.error("Couldn't save workstream budgets", err.message),
+  })
+}
+
+export function useWorkstreamBudgetRequests(projectId?: string) {
+  return useQuery({
+    queryKey: ['workstream-budget-requests', projectId ?? 'all'],
+    queryFn: async () => {
+      let q = supabase.from('workstream_budget_requests').select('*').order('created_at', { ascending: false })
+      if (projectId) q = q.eq('project_id', projectId)
+      const { data, error } = await q
+      return unwrap<WorkstreamBudgetRequest[]>(data, error)
+    },
+  })
+}
+
+/** A workstream leader (or the MD) asking for more room in a month where
+ *  planned hours would otherwise overrun the workstream's budget. */
+export function useRequestWorkstreamBudget() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (args: {
+      projectId: string
+      month: string
+      departmentId: string
+      amount: number
+      reason?: string
+    }) => {
+      const { error } = await supabase.rpc('request_workstream_budget', {
+        p_project_id: args.projectId,
+        p_month: args.month,
+        p_department_id: args.departmentId,
+        p_requested_amount: args.amount,
+        p_reason: args.reason ?? null,
+      })
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['workstream-budget-requests'] })
+      toast.success('Budget request sent to the MD')
+    },
+    onError: (err: Error) => toast.error("Couldn't send request", err.message),
+  })
+}
+
+export function useDecideWorkstreamBudgetRequest() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (args: { requestId: string; decision: 'approve' | 'deny'; comment?: string }) => {
+      const { error } = await supabase.rpc('decide_workstream_budget_request', {
+        p_request_id: args.requestId,
+        p_decision: args.decision,
+        p_comment: args.comment ?? null,
+      })
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['workstream-budget-requests'] })
+      qc.invalidateQueries({ queryKey: ['workstream-budgets'] })
+      toast.success(vars.decision === 'approve' ? 'Request approved' : 'Request denied')
+    },
+    onError: (err: Error) => toast.error("Couldn't record decision", err.message),
+  })
+}
+
 // ----------------------------------------------------------------- projects
 
 export function useProject(projectId: string | undefined) {
@@ -340,17 +524,14 @@ export function useCreateProject() {
     mutationFn: async (project: {
       org_id: string
       account_id: string
-      department_id: string | null
       name: string
       code: string | null
       description: string | null
       status: Project['status']
       start_date: string | null
-      due_date: string | null
+      length_months: number
       budget_amount: number
-      budget_hours: number
       default_billable: boolean
-      lead_id: string | null
     }) => {
       const { data, error } = await supabase.from('projects').insert(project).select('id').single()
       if (error) throw new Error(error.message)
@@ -359,6 +540,7 @@ export function useCreateProject() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['budgets'] })
       qc.invalidateQueries({ queryKey: ['dept-load'] })
+      qc.invalidateQueries({ queryKey: ['monthly-budgets'] })
       toast.success('Project created')
     },
     onError: (err: Error) => toast.error("Couldn't create project", err.message),
@@ -392,9 +574,9 @@ export function useCreateDepartment() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['departments'] })
-      toast.success('Department created')
+      toast.success('Workstream created')
     },
-    onError: (err: Error) => toast.error("Couldn't create department", err.message),
+    onError: (err: Error) => toast.error("Couldn't create workstream", err.message),
   })
 }
 
@@ -524,6 +706,78 @@ export function useSetTaskAssignees() {
       qc.invalidateQueries({ queryKey: ['dept-load'] })
     },
     onError: (err: Error) => toast.error("Couldn't update assignees", err.message),
+  })
+}
+
+// ------------------------------------------------------ task hour allocations
+
+/** Planned hours committed to contractors on tasks, by budget month. Powers
+ *  both the task drawer's hour-assignment UI and the workstream budget's
+ *  "committed" figure (hours × bill_rate, computed in v_workstream_budget). */
+export function useTaskHourAllocations(taskId?: string) {
+  return useQuery({
+    queryKey: ['task-hour-allocations', taskId ?? 'all'],
+    queryFn: async () => {
+      let q = supabase.from('task_hour_allocations').select('*').order('budget_month')
+      if (taskId) q = q.eq('task_id', taskId)
+      const { data, error } = await q
+      return unwrap<TaskHourAllocation[]>(data, error)
+    },
+  })
+}
+
+/** Upserts one contractor's hours on a task for a budget month (unique on
+ *  task_id/profile_id/budget_month). */
+export function useSetTaskHourAllocation() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (args: {
+      task_id: string
+      profile_id: string
+      department_id: string
+      budget_month: string
+      hours: number
+      org_id: string
+      created_by: string
+    }) => {
+      const { error } = await supabase
+        .from('task_hour_allocations')
+        .upsert(
+          {
+            task_id: args.task_id,
+            profile_id: args.profile_id,
+            department_id: args.department_id,
+            budget_month: args.budget_month,
+            hours: args.hours,
+            org_id: args.org_id,
+            created_by: args.created_by,
+          },
+          { onConflict: 'task_id,profile_id,budget_month' },
+        )
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['task-hour-allocations'] })
+      qc.invalidateQueries({ queryKey: ['workstream-budgets'] })
+    },
+    onError: (err: Error) => toast.error("Couldn't save hours", err.message),
+  })
+}
+
+export function useDeleteTaskHourAllocation() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('task_hour_allocations').delete().eq('id', id)
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['task-hour-allocations'] })
+      qc.invalidateQueries({ queryKey: ['workstream-budgets'] })
+    },
+    onError: (err: Error) => toast.error("Couldn't remove hours", err.message),
   })
 }
 
@@ -844,6 +1098,240 @@ export function useTransitionDeliverable() {
       toast.success(DELIVERABLE_STAGE_LABEL[vars.toStage] ?? 'Deliverable updated')
     },
     onError: (err: Error) => toast.error("Couldn't update deliverable", err.message),
+  })
+}
+
+export function useCreateDeliverable() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (
+      d: Pick<Deliverable, 'org_id' | 'project_id' | 'title'> &
+        Partial<Pick<Deliverable, 'description' | 'task_id' | 'owner_id' | 'reviewer_id' | 'due_date'>>,
+    ) => {
+      const { data, error } = await supabase.from('deliverables').insert(d).select('id').single()
+      if (error) throw new Error(error.message)
+      return data.id as string
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['deliverables'] })
+      toast.success('Deliverable created')
+    },
+    onError: (err: Error) => toast.error("Couldn't create deliverable", err.message),
+  })
+}
+
+/** Basics only — never `stage` (guarded server-side, must go through
+ *  useTransitionDeliverable) or `version`/`approved_at` (server-managed). */
+export function useUpdateDeliverable() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async ({
+      id,
+      patch,
+    }: {
+      id: string
+      patch: Partial<
+        Pick<Deliverable, 'title' | 'description' | 'task_id' | 'owner_id' | 'reviewer_id' | 'due_date'>
+      >
+    }) => {
+      const { error } = await supabase.from('deliverables').update(patch).eq('id', id)
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['deliverables'] })
+      toast.success('Saved')
+    },
+    onError: (err: Error) => toast.error("Couldn't save", err.message),
+  })
+}
+
+export function useDeleteDeliverable() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('deliverables').delete().eq('id', id)
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['deliverables'] })
+      toast.success('Deliverable deleted')
+    },
+    onError: (err: Error) => toast.error("Couldn't delete deliverable", err.message),
+  })
+}
+
+// ------------------------------------------------------ deliverable comments
+
+export function useDeliverableComments(deliverableId: string | undefined) {
+  return useQuery({
+    queryKey: ['deliverable-comments', deliverableId],
+    enabled: !!deliverableId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('deliverable_comments')
+        .select('*')
+        .eq('deliverable_id', deliverableId!)
+        .order('created_at')
+      return unwrap<DeliverableComment[]>(data, error)
+    },
+  })
+}
+
+export function useAddDeliverableComment() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (c: Pick<DeliverableComment, 'org_id' | 'deliverable_id' | 'author_id' | 'body'>) => {
+      const { error } = await supabase.from('deliverable_comments').insert(c)
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: (_data, vars) =>
+      qc.invalidateQueries({ queryKey: ['deliverable-comments', vars.deliverable_id] }),
+    onError: (err: Error) => toast.error("Couldn't post comment", err.message),
+  })
+}
+
+export function useDeleteDeliverableComment() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async ({ id }: { id: string; deliverableId: string }) => {
+      const { error } = await supabase.from('deliverable_comments').delete().eq('id', id)
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: (_data, vars) =>
+      qc.invalidateQueries({ queryKey: ['deliverable-comments', vars.deliverableId] }),
+    onError: (err: Error) => toast.error("Couldn't delete comment", err.message),
+  })
+}
+
+// ---------------------------------------------------- deliverable attachments
+
+/** Every file/link on one deliverable (used by DeliverablePanel). */
+export function useDeliverableAttachments(deliverableId: string | undefined) {
+  return useQuery({
+    queryKey: ['deliverable-attachments', deliverableId],
+    enabled: !!deliverableId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('deliverable_attachments')
+        .select('*')
+        .eq('deliverable_id', deliverableId!)
+        .order('created_at')
+      return unwrap<DeliverableAttachment[]>(data, error)
+    },
+  })
+}
+
+/** Attachment counts for every deliverable in the org, in one query - used
+ *  by DeliverableCard so a kanban board full of cards doesn't fire one
+ *  query per card just to show a paperclip badge. */
+export function useDeliverableAttachmentCounts() {
+  return useQuery({
+    queryKey: ['deliverable-attachment-counts'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('deliverable_attachments').select('deliverable_id')
+      const rows = unwrap<{ deliverable_id: string }[]>(data, error)
+      const counts: Record<string, number> = {}
+      rows.forEach((r) => {
+        counts[r.deliverable_id] = (counts[r.deliverable_id] ?? 0) + 1
+      })
+      return counts
+    },
+  })
+}
+
+export function useAddDeliverableAttachment() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (
+      row: Pick<
+        DeliverableAttachment,
+        'org_id' | 'deliverable_id' | 'added_by' | 'kind' | 'file_path' | 'url' | 'label' | 'file_size' | 'content_type'
+      >,
+    ) => {
+      const { error } = await supabase.from('deliverable_attachments').insert(row)
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['deliverable-attachments', vars.deliverable_id] })
+      qc.invalidateQueries({ queryKey: ['deliverable-attachment-counts'] })
+    },
+    onError: (err: Error) => toast.error("Couldn't add attachment", err.message),
+  })
+}
+
+export function useDeleteDeliverableAttachment() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async ({ id }: { id: string; deliverableId: string }) => {
+      const { error } = await supabase.from('deliverable_attachments').delete().eq('id', id)
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['deliverable-attachments', vars.deliverableId] })
+      qc.invalidateQueries({ queryKey: ['deliverable-attachment-counts'] })
+    },
+    onError: (err: Error) => toast.error("Couldn't delete attachment", err.message),
+  })
+}
+
+// ------------------------------------------------------ employee attachments
+
+/** Employee document metadata (Admin > Employees > Attachments tab). File
+ *  bytes live in the `employee-files` storage bucket; upload/remove of the
+ *  actual object happens in the component (same convention as deliverable
+ *  file attachments), these hooks just manage the row. */
+export function useEmployeeAttachments(employeeId: string | undefined) {
+  return useQuery({
+    queryKey: ['employee-attachments', employeeId],
+    enabled: !!employeeId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('employee_attachments')
+        .select('*')
+        .eq('employee_id', employeeId!)
+        .order('created_at')
+      return unwrap<EmployeeAttachment[]>(data, error)
+    },
+  })
+}
+
+export function useAddEmployeeAttachment() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (
+      row: Pick<
+        EmployeeAttachment,
+        'org_id' | 'employee_id' | 'uploaded_by' | 'file_path' | 'file_name' | 'file_size' | 'content_type'
+      >,
+    ) => {
+      const { error } = await supabase.from('employee_attachments').insert(row)
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: (_data, vars) =>
+      qc.invalidateQueries({ queryKey: ['employee-attachments', vars.employee_id] }),
+    onError: (err: Error) => toast.error("Couldn't save attachment", err.message),
+  })
+}
+
+export function useDeleteEmployeeAttachment() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async ({ id }: { id: string; employeeId: string }) => {
+      const { error } = await supabase.from('employee_attachments').delete().eq('id', id)
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: (_data, vars) =>
+      qc.invalidateQueries({ queryKey: ['employee-attachments', vars.employeeId] }),
+    onError: (err: Error) => toast.error("Couldn't delete attachment", err.message),
   })
 }
 

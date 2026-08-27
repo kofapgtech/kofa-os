@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Landmark } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useActivePayPeriods, useAllProfiles, useEnsurePayPeriods, usePayrollEntries, usePayrollPayments } from '@/lib/queries'
-import { EmptyState, PageHeader, Spinner } from '@/components/ui'
+import { EmptyState, PageHeader, SortableTh, Spinner, sortRows, useTableSort } from '@/components/ui'
 import { PayrollInvoiceModal } from '@/components/PayrollInvoiceModal'
 import { longDate, money } from '@/lib/format'
 import type { PayrollPaymentRow } from '@/lib/types'
@@ -32,6 +32,22 @@ export function PayrollRecords() {
     selected?.pay_period?.period_start,
     selected?.pay_period?.period_end,
   )
+
+  const sort = useTableSort<'employee' | 'period' | 'amount' | 'paid'>()
+  const sorted = sortRows(filtered, sort.sortKey, sort.sortDir, (p, key) => {
+    switch (key) {
+      case 'employee':
+        return p.profile?.full_name?.toLowerCase() ?? null
+      case 'period':
+        return p.pay_period?.period_start ?? null
+      case 'amount':
+        return p.amount
+      case 'paid':
+        return p.paid_at
+      default:
+        return null
+    }
+  })
 
   if (!isPayrollAdmin) {
     return <EmptyState title="No payroll access" hint="Ask an admin for access to this page." />
@@ -77,14 +93,14 @@ export function PayrollRecords() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-cream-300 bg-cream-100">
-                <th className="th">Employee</th>
-                <th className="th">Pay period</th>
-                <th className="th text-right">Amount</th>
-                <th className="th">Paid</th>
+                <SortableTh label="Employee" sortKey="employee" sort={sort} />
+                <SortableTh label="Pay period" sortKey="period" sort={sort} />
+                <SortableTh label="Amount" sortKey="amount" sort={sort} align="right" className="text-right" />
+                <SortableTh label="Paid" sortKey="paid" sort={sort} />
               </tr>
             </thead>
             <tbody>
-              {filtered.map((p) => (
+              {sorted.map((p) => (
                 <tr
                   key={p.id}
                   className="cursor-pointer border-b border-cream-100 last:border-0 hover:bg-cream-100"

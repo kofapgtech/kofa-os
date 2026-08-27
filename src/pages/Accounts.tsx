@@ -11,7 +11,7 @@ import {
   useShareLinks,
   useUpdateAccount,
 } from '@/lib/queries'
-import { BurnBar, EmptyState, Modal, ModalHeader, PageHeader, Spinner } from '@/components/ui'
+import { BurnBar, ConfirmDialog, EmptyState, Modal, ModalHeader, PageHeader, Spinner } from '@/components/ui'
 import { ACCOUNT_STATUS, ACCOUNT_STATUS_LABEL, PROJECT_STATUS_CLASS, PROJECT_STATUS_LABEL, hours, money } from '@/lib/format'
 import type { Account, AccountStatus } from '@/lib/types'
 
@@ -135,7 +135,7 @@ export function Accounts() {
                         </span>
                       </div>
                       <div className="mt-2.5">
-                        <BurnBar percent={hasFinancialAccess ? p.pct_amount : p.pct_hours} />
+                        <BurnBar percent={p.pct_amount} />
                       </div>
                     </Link>
                   ))}
@@ -247,11 +247,11 @@ function EditAccountModal({ account, onClose }: { account: Account; onClose: () 
     window.setTimeout(onClose, 1200)
   }
 
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+
   function del() {
-    const ok = window.confirm(
-      `Delete "${account.name}"? This closes the account and archives all its projects. Logged hours, invoices, and payment history are kept, and this can be undone by editing the statuses back.`,
-    )
-    if (ok) archive.mutate(account.id, { onSuccess: onClose })
+    setConfirmingDelete(false)
+    archive.mutate(account.id, { onSuccess: onClose })
   }
 
   return (
@@ -301,11 +301,21 @@ function EditAccountModal({ account, onClose }: { account: Account; onClose: () 
         {done && <p className="text-sm text-brand-700">Account updated.</p>}
 
         <div className="border-t border-cream-300 pt-3">
-          <button className="btn-danger w-full" disabled={archive.isPending} onClick={del}>
+          <button className="btn-danger w-full" disabled={archive.isPending} onClick={() => setConfirmingDelete(true)}>
             <Trash2 size={16} /> Delete account
           </button>
         </div>
       </div>
+
+      {confirmingDelete && (
+        <ConfirmDialog
+          title={`Delete "${account.name}"?`}
+          message="This closes the account and archives all its projects. Logged hours, invoices, and payment history are kept, and this can be undone by editing the statuses back."
+          busy={archive.isPending}
+          onConfirm={del}
+          onCancel={() => setConfirmingDelete(false)}
+        />
+      )}
     </Modal>
   )
 }

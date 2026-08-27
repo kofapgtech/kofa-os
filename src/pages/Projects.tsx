@@ -2,42 +2,21 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Check, FolderPlus, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
-import {
-  useAccounts,
-  useCreateProject,
-  useDepartments,
-  useProfiles,
-  useProjectBudgets,
-  useUpdateProject,
-} from '@/lib/queries'
-import { BurnBar, EmptyState, Modal, ModalHeader, PageHeader, Spinner } from '@/components/ui'
-import {
-  PROJECT_STATUS,
-  PROJECT_STATUS_CLASS,
-  PROJECT_STATUS_LABEL,
-  hours,
-  money,
-  shortDate,
-} from '@/lib/format'
-import type { Account, Department, Profile, Project, ProjectBudget } from '@/lib/types'
+import { useAccounts, useCreateProject, useProjectBudgets, useUpdateProject } from '@/lib/queries'
+import { BurnBar, ConfirmDialog, EmptyState, Modal, ModalHeader, PageHeader, Spinner } from '@/components/ui'
+import { PROJECT_STATUS, PROJECT_STATUS_CLASS, PROJECT_STATUS_LABEL, hours, money } from '@/lib/format'
+import type { Account, Project, ProjectBudget } from '@/lib/types'
 
 export function Projects() {
   const { profile, isAdminOrExecutive, hasFinancialAccess } = useAuth()
   const { data: projects = [], isLoading } = useProjectBudgets()
-  const { data: departments = [] } = useDepartments()
-  const [dept, setDept] = useState('all')
   const [status, setStatus] = useState('active')
   const [showNew, setShowNew] = useState(false)
   const [editing, setEditing] = useState<ProjectBudget | null>(null)
 
   const filtered = useMemo(
-    () =>
-      projects.filter(
-        (p) =>
-          (dept === 'all' || p.department_id === dept) &&
-          (status === 'all' || p.status === status),
-      ),
-    [projects, dept, status],
+    () => projects.filter((p) => status === 'all' || p.status === status),
+    [projects, status],
   )
 
   if (isLoading) return <Spinner />
@@ -48,19 +27,11 @@ export function Projects() {
         title="Projects"
         subtitle={
           hasFinancialAccess
-            ? 'Budget health across every account and department.'
+            ? 'Budget health across every account.'
             : 'Hours logged against every active engagement.'
         }
         actions={
           <>
-            <select className="input !w-auto" value={dept} onChange={(e) => setDept(e.target.value)}>
-              <option value="all">All departments</option>
-              {departments.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
             <select className="input !w-auto" value={status} onChange={(e) => setStatus(e.target.value)}>
               <option value="all">All statuses</option>
               {Object.entries(PROJECT_STATUS_LABEL).map(([k, v]) => (
@@ -88,27 +59,37 @@ export function Projects() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-ink-900">{p.name}</p>
-                    <p className="truncate text-xs text-ink-500">
-                      {p.account_name} · {p.department_name ?? 'No department'}
-                    </p>
+                    <p className="truncate text-xs text-ink-500">{p.account_name}</p>
                   </div>
-                  <span className={`chip shrink-0 ${PROJECT_STATUS_CLASS[p.status]}`}>
-                    {PROJECT_STATUS_LABEL[p.status]}
-                  </span>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <span className={`chip ${PROJECT_STATUS_CLASS[p.status]}`}>
+                      {PROJECT_STATUS_LABEL[p.status]}
+                    </span>
+                    {isAdminOrExecutive && (
+                      <button
+                        type="button"
+                        className="grid h-6 w-6 shrink-0 place-items-center rounded-full text-ink-400 hover:bg-brand-50 hover:text-brand-600"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setEditing(p)
+                        }}
+                        title="Edit project"
+                      >
+                        <Pencil size={13} />
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="mt-4">
-                  {/* Staff see the hours bar; leadership see the money bar. */}
-                  <BurnBar percent={hasFinancialAccess ? p.pct_amount : p.pct_hours} />
+                  <BurnBar percent={p.pct_amount} />
                 </div>
 
                 <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
                   <div>
-                    <p className="text-ink-500">Hours</p>
-                    <p className="font-semibold tabular-nums text-ink-900">
-                      {hours(p.total_hours)}
-                      <span className="font-normal text-ink-400"> / {p.budget_hours}h</span>
-                    </p>
+                    <p className="text-ink-500">Hours logged</p>
+                    <p className="font-semibold tabular-nums text-ink-900">{hours(p.total_hours)}</p>
                   </div>
                   <div>
                     <p className="text-ink-500">Spend</p>
@@ -120,8 +101,10 @@ export function Projects() {
                     </p>
                   </div>
                   <div>
-                    <p className="text-ink-500">Due</p>
-                    <p className="font-semibold text-ink-900">{shortDate(p.due_date)}</p>
+                    <p className="text-ink-500">Length</p>
+                    <p className="font-semibold text-ink-900">
+                      {p.length_months} {p.length_months === 1 ? 'mo' : 'mos'}
+                    </p>
                   </div>
                 </div>
 
@@ -132,15 +115,6 @@ export function Projects() {
                   </p>
                 )}
               </Link>
-
-              {isAdminOrExecutive && (
-                <button
-                  className="btn-ghost mt-3 w-full !py-1.5"
-                  onClick={() => setEditing(p)}
-                >
-                  <Pencil size={14} /> Edit
-                </button>
-              )}
             </div>
           ))}
         </div>
@@ -152,10 +126,10 @@ export function Projects() {
   )
 }
 
+const LENGTH_PRESETS = [1, 2, 3, 6, 12]
+
 function ProjectFields({
   accounts,
-  departments,
-  people,
   accountId,
   setAccountId,
   name,
@@ -164,20 +138,12 @@ function ProjectFields({
   setCode,
   status,
   setStatus,
-  departmentId,
-  setDepartmentId,
-  leadId,
-  setLeadId,
-  dueDate,
-  setDueDate,
-  budgetHours,
-  setBudgetHours,
+  lengthMonths,
+  setLengthMonths,
   budgetAmount,
   setBudgetAmount,
 }: {
   accounts: Account[]
-  departments: Department[]
-  people: Profile[]
   accountId: string
   setAccountId: (v: string) => void
   name: string
@@ -186,14 +152,8 @@ function ProjectFields({
   setCode: (v: string) => void
   status: Project['status']
   setStatus: (v: Project['status']) => void
-  departmentId: string
-  setDepartmentId: (v: string) => void
-  leadId: string
-  setLeadId: (v: string) => void
-  dueDate: string
-  setDueDate: (v: string) => void
-  budgetHours: string
-  setBudgetHours: (v: string) => void
+  lengthMonths: string
+  setLengthMonths: (v: string) => void
   budgetAmount: string
   setBudgetAmount: (v: string) => void
 }) {
@@ -230,40 +190,29 @@ function ProjectFields({
           </select>
         </div>
         <div>
-          <label className="label">Department</label>
-          <select className="input" value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
-            <option value="">No department</option>
-            {departments.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="label">Lead</label>
-          <select className="input" value={leadId} onChange={(e) => setLeadId(e.target.value)}>
-            <option value="">Unassigned</option>
-            {people.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.full_name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="label">Due date</label>
-          <input className="input" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
-        </div>
-        <div>
-          <label className="label">Budget hours</label>
+          <label className="label">Length (months)</label>
           <input
             className="input"
             type="number"
-            min="0"
-            value={budgetHours}
-            onChange={(e) => setBudgetHours(e.target.value)}
+            min="1"
+            step="1"
+            value={lengthMonths}
+            onChange={(e) => setLengthMonths(e.target.value)}
           />
+          <div className="mt-1.5 flex gap-1.5">
+            {LENGTH_PRESETS.map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setLengthMonths(String(m))}
+                className={`chip cursor-pointer ${
+                  Number(lengthMonths) === m ? 'bg-brand-700 text-white' : 'bg-cream-200 text-ink-600'
+                }`}
+              >
+                {m}mo
+              </button>
+            ))}
+          </div>
         </div>
         <div>
           <label className="label">Budget amount</label>
@@ -276,46 +225,42 @@ function ProjectFields({
           />
         </div>
       </div>
+      <p className="text-xs text-ink-500">
+        The budget splits evenly across the length in months — adjust the split on the project's Budget tab
+        once it's created.
+      </p>
     </>
   )
 }
 
 function NewProjectModal({ orgId, onClose }: { orgId: string; onClose: () => void }) {
   const { data: accounts = [] } = useAccounts()
-  const { data: departments = [] } = useDepartments()
-  const { data: people = [] } = useProfiles()
   const create = useCreateProject()
 
   const [accountId, setAccountId] = useState('')
-  const [departmentId, setDepartmentId] = useState('')
   const [name, setName] = useState('')
   const [code, setCode] = useState('')
   const [status, setStatus] = useState<Project['status']>('planning')
-  const [leadId, setLeadId] = useState('')
-  const [dueDate, setDueDate] = useState('')
-  const [budgetHours, setBudgetHours] = useState('')
+  const [lengthMonths, setLengthMonths] = useState('1')
   const [budgetAmount, setBudgetAmount] = useState('')
 
   async function submit() {
     await create.mutateAsync({
       org_id: orgId,
       account_id: accountId,
-      department_id: departmentId || null,
       name: name.trim(),
       code: code.trim() || null,
       description: null,
       status,
       start_date: null,
-      due_date: dueDate || null,
+      length_months: lengthMonths ? Math.max(1, Number(lengthMonths)) : 1,
       budget_amount: budgetAmount ? Number(budgetAmount) : 0,
-      budget_hours: budgetHours ? Number(budgetHours) : 0,
       default_billable: true,
-      lead_id: leadId || null,
     })
     onClose()
   }
 
-  const canSubmit = !!accountId && !!name.trim()
+  const canSubmit = !!accountId && !!name.trim() && Number(lengthMonths) > 0
 
   return (
     <Modal onClose={onClose}>
@@ -323,8 +268,6 @@ function NewProjectModal({ orgId, onClose }: { orgId: string; onClose: () => voi
       <div className="space-y-3">
         <ProjectFields
           accounts={accounts}
-          departments={departments}
-          people={people}
           accountId={accountId}
           setAccountId={setAccountId}
           name={name}
@@ -333,14 +276,8 @@ function NewProjectModal({ orgId, onClose }: { orgId: string; onClose: () => voi
           setCode={setCode}
           status={status}
           setStatus={setStatus}
-          departmentId={departmentId}
-          setDepartmentId={setDepartmentId}
-          leadId={leadId}
-          setLeadId={setLeadId}
-          dueDate={dueDate}
-          setDueDate={setDueDate}
-          budgetHours={budgetHours}
-          setBudgetHours={setBudgetHours}
+          lengthMonths={lengthMonths}
+          setLengthMonths={setLengthMonths}
           budgetAmount={budgetAmount}
           setBudgetAmount={setBudgetAmount}
         />
@@ -356,20 +293,15 @@ function NewProjectModal({ orgId, onClose }: { orgId: string; onClose: () => voi
   )
 }
 
-function EditProjectModal({ project, onClose }: { project: ProjectBudget; onClose: () => void }) {
+export function EditProjectModal({ project, onClose }: { project: ProjectBudget; onClose: () => void }) {
   const { data: accounts = [] } = useAccounts()
-  const { data: departments = [] } = useDepartments()
-  const { data: people = [] } = useProfiles()
   const update = useUpdateProject()
 
   const [accountId, setAccountId] = useState(project.account_id)
-  const [departmentId, setDepartmentId] = useState(project.department_id ?? '')
   const [name, setName] = useState(project.name)
   const [code, setCode] = useState(project.code ?? '')
   const [status, setStatus] = useState<Project['status']>(project.status)
-  const [leadId, setLeadId] = useState(project.lead_id ?? '')
-  const [dueDate, setDueDate] = useState(project.due_date ?? '')
-  const [budgetHours, setBudgetHours] = useState(String(project.budget_hours))
+  const [lengthMonths, setLengthMonths] = useState(String(project.length_months))
   const [budgetAmount, setBudgetAmount] = useState(String(project.budget_amount))
   const [done, setDone] = useState(false)
 
@@ -378,28 +310,25 @@ function EditProjectModal({ project, onClose }: { project: ProjectBudget; onClos
       id: project.project_id,
       patch: {
         account_id: accountId,
-        department_id: departmentId || null,
         name: name.trim(),
         code: code.trim() || null,
         status,
-        due_date: dueDate || null,
+        length_months: lengthMonths ? Math.max(1, Number(lengthMonths)) : 1,
         budget_amount: budgetAmount ? Number(budgetAmount) : 0,
-        budget_hours: budgetHours ? Number(budgetHours) : 0,
-        lead_id: leadId || null,
       },
     })
     setDone(true)
     window.setTimeout(onClose, 1200)
   }
 
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+
   function del() {
-    const ok = window.confirm(
-      `Delete "${project.name}"? This archives the project. Logged hours, invoices, and payment history are kept, and this can be undone by editing the status back.`,
-    )
-    if (ok) update.mutate({ id: project.project_id, patch: { status: 'archived' } }, { onSuccess: onClose })
+    setConfirmingDelete(false)
+    update.mutate({ id: project.project_id, patch: { status: 'archived' } }, { onSuccess: onClose })
   }
 
-  const canSubmit = !!accountId && !!name.trim()
+  const canSubmit = !!accountId && !!name.trim() && Number(lengthMonths) > 0
 
   return (
     <Modal onClose={onClose}>
@@ -407,8 +336,6 @@ function EditProjectModal({ project, onClose }: { project: ProjectBudget; onClos
       <div className="space-y-3">
         <ProjectFields
           accounts={accounts}
-          departments={departments}
-          people={people}
           accountId={accountId}
           setAccountId={setAccountId}
           name={name}
@@ -417,17 +344,15 @@ function EditProjectModal({ project, onClose }: { project: ProjectBudget; onClos
           setCode={setCode}
           status={status}
           setStatus={setStatus}
-          departmentId={departmentId}
-          setDepartmentId={setDepartmentId}
-          leadId={leadId}
-          setLeadId={setLeadId}
-          dueDate={dueDate}
-          setDueDate={setDueDate}
-          budgetHours={budgetHours}
-          setBudgetHours={setBudgetHours}
+          lengthMonths={lengthMonths}
+          setLengthMonths={setLengthMonths}
           budgetAmount={budgetAmount}
           setBudgetAmount={setBudgetAmount}
         />
+        <p className="text-xs text-ink-500">
+          Changing the budget amount here doesn't reflow the monthly split automatically — revisit the
+          Budget tab to rebalance months after a change.
+        </p>
         <button
           className="btn-primary w-full"
           disabled={!canSubmit || update.isPending}
@@ -438,11 +363,21 @@ function EditProjectModal({ project, onClose }: { project: ProjectBudget; onClos
         {done && <p className="text-sm text-brand-700">Project updated.</p>}
 
         <div className="border-t border-cream-300 pt-3">
-          <button className="btn-danger w-full" disabled={update.isPending} onClick={del}>
+          <button className="btn-danger w-full" disabled={update.isPending} onClick={() => setConfirmingDelete(true)}>
             <Trash2 size={16} /> Delete project
           </button>
         </div>
       </div>
+
+      {confirmingDelete && (
+        <ConfirmDialog
+          title={`Delete "${project.name}"?`}
+          message="This archives the project. Logged hours, invoices, and payment history are kept, and this can be undone by editing the status back."
+          busy={update.isPending}
+          onConfirm={del}
+          onCancel={() => setConfirmingDelete(false)}
+        />
+      )}
     </Modal>
   )
 }

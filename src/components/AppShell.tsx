@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
   Building2,
   CalendarClock,
@@ -54,7 +54,7 @@ const NAV: NavItem[] = [
     gate: 'admin',
     children: [
       { to: '/admin/employees', label: 'Employees' },
-      { to: '/admin/departments', label: 'Departments', gate: 'admin-full' },
+      { to: '/admin/workstreams', label: 'Workstreams', gate: 'admin-full' },
     ],
   },
 ]
@@ -143,13 +143,16 @@ export function AppShell() {
           <div className="ml-auto flex items-center gap-2">
             <GlobalTimer />
             <NotificationBell />
-            <div className="hidden items-center gap-2 pl-2 sm:flex">
-              <Avatar name={profile?.full_name} onBrand />
-              <div className="leading-tight">
+            <Link
+              to="/profile"
+              className="hidden items-center gap-2 rounded-lg pl-2 pr-2 py-1 sm:flex hover:bg-white/10"
+            >
+              <Avatar name={profile?.full_name} avatarUrl={profile?.avatar_url} onBrand />
+              <div className="leading-tight text-left">
                 <p className="text-sm font-medium text-cream-50">{profile?.full_name}</p>
                 <p className="text-xs text-cream-200/70">{profile?.title}</p>
               </div>
-            </div>
+            </Link>
             <button
               className="btn-onbrand !px-2.5"
               title="Sign out"

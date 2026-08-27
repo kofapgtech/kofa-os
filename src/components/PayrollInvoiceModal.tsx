@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { CheckCircle2, Printer, X } from 'lucide-react'
 import { groupPayrollEntries, usePayEmployee } from '@/lib/queries'
-import { Modal, Spinner } from '@/components/ui'
+import { Modal, SortableTh, Spinner, sortRows, useTableSort } from '@/components/ui'
 import { hours, longDate, money } from '@/lib/format'
 import type { PayrollEntry, PayrollPayment } from '@/lib/types'
 
@@ -40,6 +40,9 @@ export function PayrollInvoiceModal({
   const totalHours = rows.reduce((sum, li) => sum + li.hours, 0)
   const totalAmount = rows.reduce((sum, li) => sum + li.amount, 0)
 
+  const sort = useTableSort<'name' | 'hours' | 'amount'>()
+  const sortedRows = sortRows(rows, sort.sortKey, sort.sortDir, (li, key) => li[key])
+
   const columnLabel = groupBy === 'project' ? 'Project' : 'Employee'
   const amountLabel = groupBy === 'project' ? 'Amount to be paid' : 'Amount'
   const totalLabel = groupBy === 'project' ? 'Total for this pay period' : 'Total'
@@ -67,13 +70,13 @@ export function PayrollInvoiceModal({
         <table className="w-full">
           <thead>
             <tr className="border-b border-cream-300">
-              <th className="th">{columnLabel}</th>
-              <th className="th text-right">Hours logged</th>
-              <th className="th text-right">{amountLabel}</th>
+              <SortableTh label={columnLabel} sortKey="name" sort={sort} />
+              <SortableTh label="Hours logged" sortKey="hours" sort={sort} align="right" className="text-right" />
+              <SortableTh label={amountLabel} sortKey="amount" sort={sort} align="right" className="text-right" />
             </tr>
           </thead>
           <tbody>
-            {rows.map((li) => (
+            {sortedRows.map((li) => (
               <tr key={li.id} className="border-b border-cream-100">
                 <td className="td">{li.name}</td>
                 <td className="td text-right tabular-nums">{hours(li.hours)}</td>

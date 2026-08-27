@@ -1,4 +1,4 @@
-import type { AccountStatus, DeliverableStage, ProjectStatus, TaskPriority, TaskStatus } from './types'
+import type { AccountStatus, DeliverableStage, EmploymentType, ProjectStatus, TaskPriority, TaskStatus, UserRole } from './types'
 
 const currency = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -162,6 +162,20 @@ export const STAGE_CLASS: Record<DeliverableStage, string> = {
 }
 
 /** Budget health drives colour everywhere it appears. */
+export const ROLE_LABEL: Record<UserRole, string> = {
+  admin: 'Admin',
+  executive: 'Executive',
+  dept_lead: 'Department lead',
+  billing_finance: 'Billing/Finance',
+  hr_manager: 'HR',
+  staff: 'Staff',
+}
+
+export const EMPLOYMENT_TYPE_LABEL: Record<EmploymentType, string> = {
+  employee: 'Employee',
+  contractor: 'Contractor',
+}
+
 export function burnTone(percent: number | null | undefined): {
   bar: string
   text: string

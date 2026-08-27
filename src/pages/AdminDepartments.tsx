@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { Building2, Plus, Star, UserMinus, UserPlus, Users2 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAllProfiles, useCreateDepartment, useDepartments, useUpdateProfile } from '@/lib/queries'
-import { EmptyState, Modal, ModalHeader, PageHeader, Spinner } from '@/components/ui'
+import { EmptyState, Modal, ModalHeader, PageHeader, SortableTh, Spinner, sortRows, useTableSort } from '@/components/ui'
 import type { Department, UserRole } from '@/lib/types'
 
 const ROLE_LABEL: Record<UserRole, string> = {
@@ -26,11 +26,11 @@ export function AdminDepartments() {
   return (
     <div>
       <PageHeader
-        title="Departments"
-        subtitle="Company-wide teams. Tasks get routed to a department instead of a project's roster; its lead assigns the work from there."
+        title="Workstreams"
+        subtitle="Company-wide teams. Tasks get routed to a Workstream instead of a project's roster; its lead assigns the work from there."
         actions={
           <button className="btn-primary" onClick={() => setCreating(true)}>
-            <Building2 size={16} /> New department
+            <Building2 size={16} /> New Workstream
           </button>
         }
       />
@@ -56,27 +56,44 @@ function Section({ title, icon, children }: { title: string; icon: ReactNode; ch
 function DepartmentsCard({ onSelect }: { onSelect: (d: Department) => void }) {
   const { data: departments = [], isLoading } = useDepartments()
   const { data: people = [] } = useAllProfiles()
+  const sort = useTableSort<'name' | 'members' | 'lead'>()
+
+  const rows = departments.map((d) => {
+    const members = people.filter((p) => p.department_id === d.id)
+    const leads = members.filter((p) => p.role === 'dept_lead')
+    return { department: d, members, leads }
+  })
+  const sorted = sortRows(rows, sort.sortKey, sort.sortDir, (r, key) => {
+    switch (key) {
+      case 'name':
+        return r.department.name.toLowerCase()
+      case 'members':
+        return r.members.length
+      case 'lead':
+        return r.leads.length ? r.leads.map((l) => l.full_name).join(', ').toLowerCase() : null
+      default:
+        return null
+    }
+  })
 
   return (
-    <Section title="Departments" icon={<Building2 size={16} className="text-brand-600" />}>
+    <Section title="Workstreams" icon={<Building2 size={16} className="text-brand-600" />}>
       {isLoading ? (
         <Spinner />
       ) : departments.length === 0 ? (
-        <EmptyState title="No departments yet." hint="Create one to start routing tasks to it." />
+        <EmptyState title="No workstreams yet." hint="Create one to start routing tasks to it." />
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-cream-300 text-left text-xs font-semibold uppercase tracking-wide text-ink-500">
-                <th className="py-2 pr-3">Name</th>
-                <th className="py-2 pr-3">Members</th>
-                <th className="py-2 pr-3">Lead</th>
+                <SortableTh label="Name" sortKey="name" sort={sort} thClassName="py-2 pr-3" />
+                <SortableTh label="Members" sortKey="members" sort={sort} thClassName="py-2 pr-3" />
+                <SortableTh label="Lead" sortKey="lead" sort={sort} thClassName="py-2 pr-3" />
               </tr>
             </thead>
             <tbody>
-              {departments.map((d) => {
-                const members = people.filter((p) => p.department_id === d.id)
-                const leads = members.filter((p) => p.role === 'dept_lead')
+              {sorted.map(({ department: d, members, leads }) => {
                 return (
                   <tr
                     key={d.id}
@@ -110,7 +127,7 @@ function NewDepartmentModal({ orgId, onClose }: { orgId: string; onClose: () => 
 
   return (
     <Modal onClose={onClose}>
-      <ModalHeader title="New department" icon={<Building2 size={16} className="text-brand-600" />} onClose={onClose} />
+      <ModalHeader title="New Workstream" icon={<Building2 size={16} className="text-brand-600" />} onClose={onClose} />
       <div className="space-y-3">
         <div>
           <label className="label">Name</label>
@@ -118,7 +135,7 @@ function NewDepartmentModal({ orgId, onClose }: { orgId: string; onClose: () => 
             className="input"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Department name"
+            placeholder="Workstream name"
             autoFocus
           />
         </div>
@@ -127,7 +144,7 @@ function NewDepartmentModal({ orgId, onClose }: { orgId: string; onClose: () => 
           disabled={!name.trim() || createDept.isPending}
           onClick={() => void submit()}
         >
-          <Plus size={16} /> Create department
+          <Plus size={16} /> Create Workstream
         </button>
       </div>
     </Modal>
@@ -175,7 +192,7 @@ function DepartmentMembersModal({ department, onClose }: { department: Departmen
                       className={`flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium transition-colors ${
                         isLead ? 'bg-brand-100 text-brand-700' : 'text-ink-400 hover:bg-cream-200'
                       }`}
-                      title={isLead ? 'Department lead — click to remove' : 'Make department lead'}
+                      title={isLead ? 'Workstream lead — click to remove' : 'Make Workstream lead'}
                       disabled={update.isPending}
                       onClick={() => update.mutate({ id: m.id, patch: { role: isLead ? 'staff' : 'dept_lead' } })}
                     >
@@ -185,7 +202,7 @@ function DepartmentMembersModal({ department, onClose }: { department: Departmen
                   )}
                   <button
                     className="text-ink-400 hover:text-rose-600"
-                    title="Remove from department"
+                    title="Remove from Workstream"
                     disabled={update.isPending}
                     onClick={() => update.mutate({ id: m.id, patch: { department_id: null } })}
                   >
