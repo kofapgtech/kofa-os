@@ -1,7 +1,15 @@
 import { useState, type ReactNode } from 'react'
 import { Building2, Plus, Star, UserMinus, UserPlus, Users2 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
-import { useAllProfiles, useCreateDepartment, useDepartments, useUpdateProfile } from '@/lib/queries'
+import {
+  useAddDepartmentLead,
+  useAllProfiles,
+  useCreateDepartment,
+  useDepartmentLeads,
+  useDepartments,
+  useRemoveDepartmentLead,
+  useUpdateProfile,
+} from '@/lib/queries'
 import { EmptyState, Modal, ModalHeader, PageHeader, SortableTh, Spinner, sortRows, useTableSort } from '@/components/ui'
 import type { Department, UserRole } from '@/lib/types'
 
@@ -56,11 +64,23 @@ function Section({ title, icon, children }: { title: string; icon: ReactNode; ch
 function DepartmentsCard({ onSelect }: { onSelect: (d: Department) => void }) {
   const { data: departments = [], isLoading } = useDepartments()
   const { data: people = [] } = useAllProfiles()
+  const { data: departmentLeads = [] } = useDepartmentLeads()
   const sort = useTableSort<'name' | 'members' | 'lead'>()
 
   const rows = departments.map((d) => {
     const members = people.filter((p) => p.department_id === d.id)
-    const leads = members.filter((p) => p.role === 'dept_lead')
+    // A workstream's leads are everyone with role='dept_lead' staffed in it
+    // (the original, single-workstream-per-person convention), PLUS anyone
+    // explicitly tagged via department_leads - that's how an admin/executive
+    // gets to lead more than one workstream at once, since department_id
+    // can only ever point at one. Dedupe in case someone's somehow both.
+    const additionalLeadIds = new Set(
+      departmentLeads.filter((dl) => dl.department_id === d.id).map((dl) => dl.profile_id),
+    )
+    const leads = [
+      ...members.filter((p) => p.role === 'dept_lead'),
+      ...people.filter((p) => additionalLeadIds.has(p.id)),
+    ].filter((p, i, arr) => arr.findIndex((x) => x.id === p.id) === i)
     return { department: d, members, leads }
   })
   const sorted = sortRows(rows, sort.sortKey, sort.sortDir, (r, key) => {
@@ -153,11 +173,36 @@ function NewDepartmentModal({ orgId, onClose }: { orgId: string; onClose: () => 
 
 function DepartmentMembersModal({ department, onClose }: { department: Department; onClose: () => void }) {
   const { data: people = [], isLoading } = useAllProfiles()
+  const { data: departmentLeads = [] } = useDepartmentLeads()
   const update = useUpdateProfile()
+  const addLead = useAddDepartmentLead()
+  const removeLead = useRemoveDepartmentLead()
   const [addId, setAddId] = useState('')
+  const [addLeadId, setAddLeadId] = useState('')
 
   const members = people.filter((p) => p.department_id === department.id)
   const available = people.filter((p) => p.is_active && p.department_id !== department.id)
+
+  // Additional leads: admin/executive/HR profiles explicitly tagged as
+  // leading this workstream on top of the department_id+role='dept_lead'
+  // convention above - this is how the same person can lead several
+  // workstreams at once. Doesn't require (or change) their department_id
+  // membership. Note this is attribution only, same as it always was for
+  // admin/executive: it doesn't by itself grant is_lead_or_admin()-gated
+  // powers (approving workstream budgets, assigning task hours) - HR
+  // specifically doesn't have those server-side regardless of this tag,
+  // so tagging an HR person as lead here shows them in the Lead column but
+  // doesn't change what they can do elsewhere in the app.
+  const additionalLeadIds = new Set(
+    departmentLeads.filter((dl) => dl.department_id === department.id).map((dl) => dl.profile_id),
+  )
+  const additionalLeads = people.filter((p) => additionalLeadIds.has(p.id))
+  const availableLeads = people.filter(
+    (p) =>
+      p.is_active &&
+      (p.role === 'admin' || p.role === 'executive' || p.role === 'hr_manager') &&
+      !additionalLeadIds.has(p.id),
+  )
 
   return (
     <Modal onClose={onClose} className="max-w-lg">
@@ -234,6 +279,61 @@ function DepartmentMembersModal({ department, onClose }: { department: Departmen
         >
           <UserPlus size={16} /> Add
         </button>
+      </div>
+
+      <div className="mt-5 border-t border-cream-300 pt-4">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-500">Additional leads</p>
+        <p className="mb-3 text-xs text-ink-500">
+          An admin, executive, or HR can lead this Workstream alongside others, without moving
+          them into it as a member.
+        </p>
+
+        {additionalLeads.length > 0 && (
+          <ul className="mb-3 space-y-1.5">
+            {additionalLeads.map((p) => (
+              <li
+                key={p.id}
+                className="flex items-center justify-between rounded-lg border border-cream-300 px-3 py-2 text-sm"
+              >
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-ink-900">{p.full_name}</p>
+                  <p className="truncate text-xs text-ink-500">
+                    {p.email} · {ROLE_LABEL[p.role]}
+                  </p>
+                </div>
+                <button
+                  className="shrink-0 text-ink-400 hover:text-rose-600"
+                  title="Remove as lead"
+                  disabled={removeLead.isPending}
+                  onClick={() => removeLead.mutate({ departmentId: department.id, profileId: p.id })}
+                >
+                  <UserMinus size={16} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <div className="flex gap-2">
+          <select className="input" value={addLeadId} onChange={(e) => setAddLeadId(e.target.value)}>
+            <option value="">Add a lead…</option>
+            {availableLeads.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.full_name} ({ROLE_LABEL[p.role]})
+              </option>
+            ))}
+          </select>
+          <button
+            className="btn-primary shrink-0"
+            disabled={!addLeadId || addLead.isPending}
+            onClick={() => {
+              addLead.mutate({ org_id: department.org_id, department_id: department.id, profile_id: addLeadId })
+              setAddLeadId('')
+            }}
+          >
+            <Star size={16} /> Add
+          </button>
+        </div>
       </div>
     </Modal>
   )

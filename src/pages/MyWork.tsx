@@ -5,6 +5,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useTimer } from '@/contexts/TimerContext'
 import {
   useDeliverables,
+  useDepartmentLeads,
   usePendingApprovals,
   useProfiles,
   useProjectBudgets,
@@ -71,18 +72,34 @@ export function MyWork() {
   )
   const taskById = useMemo(() => Object.fromEntries(tasks.map((t) => [t.id, t])), [tasks])
 
-  // Tasks routed to my department, still with nobody assigned — mine to
-  // staff, if I'm that department's lead.
-  const myLeadDepartmentId = profile?.role === 'dept_lead' ? profile.department_id : null
+  // Tasks routed to a workstream I lead, still with nobody assigned — mine
+  // to staff. "Lead" here is two things merged: the classic
+  // department_id+role='dept_lead' membership (one workstream), plus any
+  // department_leads rows tagging me as an additional lead (however many
+  // workstreams — this is how an admin/executive ends up leading several
+  // at once instead of just the one they happen to be staffed in).
+  const { data: departmentLeads = [] } = useDepartmentLeads()
+  const myLeadDepartmentIds = useMemo(() => {
+    const ids = new Set<string>()
+    if (profile?.role === 'dept_lead' && profile.department_id) ids.add(profile.department_id)
+    departmentLeads.forEach((dl) => {
+      if (dl.profile_id === profile?.id) ids.add(dl.department_id)
+    })
+    return ids
+  }, [profile, departmentLeads])
   const assignedTaskIds = useMemo(() => new Set(taskAssignees.map((a) => a.task_id)), [taskAssignees])
   const myDepartmentQueue = useMemo(
     () =>
-      myLeadDepartmentId
+      myLeadDepartmentIds.size > 0
         ? tasks.filter(
-            (t) => t.department_id === myLeadDepartmentId && t.status !== 'done' && !assignedTaskIds.has(t.id),
+            (t) =>
+              !!t.department_id &&
+              myLeadDepartmentIds.has(t.department_id) &&
+              t.status !== 'done' &&
+              !assignedTaskIds.has(t.id),
           )
         : [],
-    [tasks, myLeadDepartmentId, assignedTaskIds],
+    [tasks, myLeadDepartmentIds, assignedTaskIds],
   )
 
   const projectName = (id: string) => projects.find((p) => p.project_id === id)?.name ?? ''

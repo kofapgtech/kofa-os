@@ -43,6 +43,17 @@ export interface Department {
   color: string
 }
 
+/** Tags a profile as an ADDITIONAL lead of a workstream, on top of (or
+ *  instead of) the department_id+role='dept_lead' convention above - lets
+ *  a single admin/executive lead any number of workstreams at once, since
+ *  department_id can only ever point at one. See department_leads table. */
+export interface DepartmentLead {
+  department_id: string
+  profile_id: string
+  org_id: string
+  created_at: string
+}
+
 export interface Profile {
   id: string
   org_id: string

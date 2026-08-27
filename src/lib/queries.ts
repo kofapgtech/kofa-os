@@ -11,6 +11,7 @@ import type {
   DeliverableReview,
   DeliverableStage,
   Department,
+  DepartmentLead,
   DepartmentLoad,
   EmployeeAttachment,
   PayPeriod,
@@ -577,6 +578,52 @@ export function useCreateDepartment() {
       toast.success('Workstream created')
     },
     onError: (err: Error) => toast.error("Couldn't create workstream", err.message),
+  })
+}
+
+/** Every "additional lead" tag across the org, in one query - lets a single
+ *  admin/executive be recorded as leading any number of workstreams (see
+ *  [[DepartmentLead]]), on top of whoever's a department_id member with
+ *  role='dept_lead'. Used by AdminDepartments (to show/edit) and MyWork (so
+ *  a multi-workstream lead's "staff this" queue covers all of them). */
+export function useDepartmentLeads() {
+  return useQuery({
+    queryKey: ['department-leads'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('department_leads').select('*')
+      return unwrap<DepartmentLead[]>(data, error)
+    },
+    staleTime: 60_000,
+  })
+}
+
+export function useAddDepartmentLead() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (row: { org_id: string; department_id: string; profile_id: string }) => {
+      const { error } = await supabase.from('department_leads').insert(row)
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['department-leads'] }),
+    onError: (err: Error) => toast.error("Couldn't add lead", err.message),
+  })
+}
+
+export function useRemoveDepartmentLead() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async ({ departmentId, profileId }: { departmentId: string; profileId: string }) => {
+      const { error } = await supabase
+        .from('department_leads')
+        .delete()
+        .eq('department_id', departmentId)
+        .eq('profile_id', profileId)
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['department-leads'] }),
+    onError: (err: Error) => toast.error("Couldn't remove lead", err.message),
   })
 }
 
