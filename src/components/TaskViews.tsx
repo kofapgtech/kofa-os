@@ -196,7 +196,7 @@ export function TaskViews({ tasks, people, hoursByTask, projectId, projectNames,
           onOpenSubtask={setSelected}
         />
       )}
-      {adding && projectId && <NewTaskPanel projectId={projectId} people={people} onClose={() => setAdding(false)} />}
+      {adding && projectId && <NewTaskPanel projectId={projectId} onClose={() => setAdding(false)} />}
     </div>
   )
 }
@@ -1059,7 +1059,6 @@ function TaskPanel({
       {addingSubtask && (
         <NewTaskPanel
           projectId={task.project_id}
-          people={people}
           parentTaskId={task.id}
           onClose={() => setAddingSubtask(false)}
         />
@@ -1521,12 +1520,10 @@ function TimeRequestSection({ task }: { task: Task }) {
 
 function NewTaskPanel({
   projectId,
-  people,
   parentTaskId,
   onClose,
 }: {
   projectId: string
-  people: Profile[]
   parentTaskId?: string
   onClose: () => void
 }) {
