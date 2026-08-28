@@ -138,6 +138,8 @@ function ProjectFields({
   setCode,
   status,
   setStatus,
+  startDate,
+  setStartDate,
   lengthMonths,
   setLengthMonths,
   budgetAmount,
@@ -152,6 +154,8 @@ function ProjectFields({
   setCode: (v: string) => void
   status: Project['status']
   setStatus: (v: Project['status']) => void
+  startDate: string
+  setStartDate: (v: string) => void
   lengthMonths: string
   setLengthMonths: (v: string) => void
   budgetAmount: string
@@ -190,6 +194,15 @@ function ProjectFields({
           </select>
         </div>
         <div>
+          <label className="label">Start date</label>
+          <input
+            className="input"
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+          />
+        </div>
+        <div>
           <label className="label">Length (months)</label>
           <input
             className="input"
@@ -214,7 +227,7 @@ function ProjectFields({
             ))}
           </div>
         </div>
-        <div>
+        <div className="col-span-2">
           <label className="label">Budget amount</label>
           <input
             className="input"
@@ -226,8 +239,8 @@ function ProjectFields({
         </div>
       </div>
       <p className="text-xs text-ink-500">
-        The budget splits evenly across the length in months — adjust the split on the project's Budget tab
-        once it's created.
+        The budget splits evenly across the length in months, starting from the start date — adjust the
+        split on the project's Budget tab once it's created.
       </p>
     </>
   )
@@ -241,6 +254,7 @@ function NewProjectModal({ orgId, onClose }: { orgId: string; onClose: () => voi
   const [name, setName] = useState('')
   const [code, setCode] = useState('')
   const [status, setStatus] = useState<Project['status']>('planning')
+  const [startDate, setStartDate] = useState('')
   const [lengthMonths, setLengthMonths] = useState('1')
   const [budgetAmount, setBudgetAmount] = useState('')
 
@@ -252,7 +266,7 @@ function NewProjectModal({ orgId, onClose }: { orgId: string; onClose: () => voi
       code: code.trim() || null,
       description: null,
       status,
-      start_date: null,
+      start_date: startDate || null,
       length_months: lengthMonths ? Math.max(1, Number(lengthMonths)) : 1,
       budget_amount: budgetAmount ? Number(budgetAmount) : 0,
       default_billable: true,
@@ -276,6 +290,8 @@ function NewProjectModal({ orgId, onClose }: { orgId: string; onClose: () => voi
           setCode={setCode}
           status={status}
           setStatus={setStatus}
+          startDate={startDate}
+          setStartDate={setStartDate}
           lengthMonths={lengthMonths}
           setLengthMonths={setLengthMonths}
           budgetAmount={budgetAmount}
@@ -301,6 +317,7 @@ export function EditProjectModal({ project, onClose }: { project: ProjectBudget;
   const [name, setName] = useState(project.name)
   const [code, setCode] = useState(project.code ?? '')
   const [status, setStatus] = useState<Project['status']>(project.status)
+  const [startDate, setStartDate] = useState(project.start_date ?? '')
   const [lengthMonths, setLengthMonths] = useState(String(project.length_months))
   const [budgetAmount, setBudgetAmount] = useState(String(project.budget_amount))
   const [done, setDone] = useState(false)
@@ -313,6 +330,7 @@ export function EditProjectModal({ project, onClose }: { project: ProjectBudget;
         name: name.trim(),
         code: code.trim() || null,
         status,
+        start_date: startDate || null,
         length_months: lengthMonths ? Math.max(1, Number(lengthMonths)) : 1,
         budget_amount: budgetAmount ? Number(budgetAmount) : 0,
       },
@@ -344,14 +362,16 @@ export function EditProjectModal({ project, onClose }: { project: ProjectBudget;
           setCode={setCode}
           status={status}
           setStatus={setStatus}
+          startDate={startDate}
+          setStartDate={setStartDate}
           lengthMonths={lengthMonths}
           setLengthMonths={setLengthMonths}
           budgetAmount={budgetAmount}
           setBudgetAmount={setBudgetAmount}
         />
         <p className="text-xs text-ink-500">
-          Changing the budget amount here doesn't reflow the monthly split automatically — revisit the
-          Budget tab to rebalance months after a change.
+          Changing the budget amount or start date here doesn't reflow the monthly split automatically —
+          revisit the Budget tab to rebalance months after a change.
         </p>
         <button
           className="btn-primary w-full"

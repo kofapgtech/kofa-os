@@ -500,6 +500,8 @@ function MonthlyBudgetPlanner({ projectId, budget }: { projectId: string; budget
   const [expanded, setExpanded] = useState<string | null>(null)
 
   const byMonth = useMemo(() => new Map(monthRows.map((r) => [r.month, r])), [monthRows])
+  const currentMonthCutoff = new Date().toISOString().slice(0, 7) + '-01'
+  const isPastMonth = (m: string) => m < currentMonthCutoff
 
   const plannedMonths = useMemo(() => {
     const list: string[] = []
@@ -548,12 +550,16 @@ function MonthlyBudgetPlanner({ projectId, budget }: { projectId: string; budget
   }, [draftMonths.join(',')])
 
   function distributeEvenly() {
-    const remaining = budget.budget_amount - approvedTotal
-    const n = draftMonths.length
+    const futureDraftMonths = draftMonths.filter((m) => !isPastMonth(m))
+    const pastDraftTotal = draftMonths
+      .filter((m) => isPastMonth(m))
+      .reduce((s, m) => s + (Number(drafts[m]) || 0), 0)
+    const remaining = budget.budget_amount - approvedTotal - pastDraftTotal
+    const n = futureDraftMonths.length
     if (n === 0) return
     const base = Math.floor((remaining / n) * 100) / 100
-    const next: Record<string, string> = {}
-    draftMonths.forEach((m, i) => {
+    const next: Record<string, string> = { ...drafts }
+    futureDraftMonths.forEach((m, i) => {
       next[m] = i === n - 1 ? (remaining - base * (n - 1)).toFixed(2) : base.toFixed(2)
     })
     setDrafts(next)
@@ -564,7 +570,9 @@ function MonthlyBudgetPlanner({ projectId, budget }: { projectId: string; budget
   const diff = Math.round((budget.budget_amount - grandTotal) * 100) / 100
 
   function save() {
-    const entries = draftMonths.map((m) => ({ month: m, amount: Number(drafts[m]) || 0 }))
+    const entries = draftMonths
+      .filter((m) => !isPastMonth(m))
+      .map((m) => ({ month: m, amount: Number(drafts[m]) || 0 }))
     setMonths.mutate({ projectId, entries })
   }
 
@@ -602,7 +610,7 @@ function MonthlyBudgetPlanner({ projectId, budget }: { projectId: string; budget
                       <tr className="hover:bg-cream-100">
                         <td className="td font-medium text-ink-900">{monthLabel(m)}</td>
                         <td className="td text-right tabular-nums">
-                          {isApproved || !isAdminOrExecutive ? (
+                          {isApproved || !isAdminOrExecutive || isPastMonth(m) ? (
                             money(row?.amount ?? Number(drafts[m]) ?? 0)
                           ) : (
                             <input
@@ -637,12 +645,21 @@ function MonthlyBudgetPlanner({ projectId, budget }: { projectId: string; budget
                                 </button>
                               )}
                               {isApproved ? (
-                                <button
-                                  className="btn-ghost !py-1 !px-2.5 text-xs"
-                                  onClick={() => unapproveMonth.mutate({ id: row!.id, projectId })}
-                                >
-                                  Reopen
-                                </button>
+                                isPastMonth(m) ? (
+                                  <span
+                                    className="chip bg-cream-200 text-ink-600"
+                                    title="This month has ended and can no longer be reopened."
+                                  >
+                                    Locked
+                                  </span>
+                                ) : (
+                                  <button
+                                    className="btn-ghost !py-1 !px-2.5 text-xs"
+                                    onClick={() => unapproveMonth.mutate({ id: row!.id, projectId })}
+                                  >
+                                    Reopen
+                                  </button>
+                                )
                               ) : row ? (
                                 <button
                                   className="btn-primary !py-1 !px-2.5 text-xs"
@@ -669,7 +686,7 @@ function MonthlyBudgetPlanner({ projectId, budget }: { projectId: string; budget
             </table>
           </div>
 
-          {isAdminOrExecutive && draftMonths.length > 0 && (
+          {isAdminOrExecutive && draftMonths.some((m) => !isPastMonth(m)) && (
             <div className="mt-3 flex flex-wrap gap-2">
               <button className="btn-ghost text-xs" onClick={distributeEvenly}>
                 Split evenly
@@ -698,6 +715,8 @@ function WorkstreamAllocationEditor({
   monthBudget: ProjectMonthlyBudgetRow
 }) {
   const { isAdminOrExecutive } = useAuth()
+  const isPastMonth = month < new Date().toISOString().slice(0, 7) + '-01'
+  const canEdit = isAdminOrExecutive && !isPastMonth
   const { data: rows = [] } = useWorkstreamBudgets(projectId, month)
   const { data: departments = [] } = useDepartments()
   const setWorkstreams = useSetWorkstreamBudgets()
@@ -744,6 +763,9 @@ function WorkstreamAllocationEditor({
       <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">
         {monthLabel(month)} · workstream allocation
       </p>
+      {isAdminOrExecutive && isPastMonth && (
+        <p className="text-xs text-ink-500">This month has ended — allocation is locked.</p>
+      )}
       {Object.keys(entries).length === 0 ? (
         <p className="text-sm text-ink-500">No workstreams chosen for this month yet.</p>
       ) : (
@@ -756,7 +778,7 @@ function WorkstreamAllocationEditor({
                 className="flex flex-wrap items-center gap-3 rounded-lg border border-cream-300 bg-white px-3 py-2"
               >
                 <span className="min-w-[9rem] flex-1 text-sm font-medium text-ink-900">{deptName(id)}</span>
-                {isAdminOrExecutive ? (
+                {canEdit ? (
                   <input
                     className="input !w-28 text-right"
                     type="number"
@@ -771,7 +793,7 @@ function WorkstreamAllocationEditor({
                 <span className="text-xs text-ink-500">
                   committed {money(r?.committed_amount ?? 0)} · remaining {money(r?.remaining_amount ?? Number(entries[id]))}
                 </span>
-                {isAdminOrExecutive && (
+                {canEdit && (
                   <button className="btn-ghost !py-1 !px-2 text-xs" onClick={() => removeDept(id)}>
                     Remove
                   </button>
@@ -782,7 +804,7 @@ function WorkstreamAllocationEditor({
         </div>
       )}
 
-      {isAdminOrExecutive && (
+      {canEdit && (
         <>
           {availableDepartments.length > 0 && (
             <div className="flex items-center gap-2">
@@ -856,19 +878,28 @@ function WorkstreamBudgetRequestsPanel({
               {r.reason && <p className="text-xs text-ink-500">{r.reason}</p>}
             </div>
             {r.status === 'pending' && isAdminOrExecutive ? (
-              <div className="flex shrink-0 gap-1.5">
+              <div className="flex shrink-0 items-center gap-1.5">
                 <button
                   className="btn-ghost !py-1 !px-2.5 text-xs"
                   onClick={() => decide.mutate({ requestId: r.id, decision: 'deny' })}
                 >
                   Deny
                 </button>
-                <button
-                  className="btn-primary !py-1 !px-2.5 text-xs"
-                  onClick={() => decide.mutate({ requestId: r.id, decision: 'approve' })}
-                >
-                  Approve
-                </button>
+                {r.month < new Date().toISOString().slice(0, 7) + '-01' ? (
+                  <span
+                    className="chip bg-cream-200 text-ink-600"
+                    title="This month has already ended and can no longer be approved."
+                  >
+                    Past month
+                  </span>
+                ) : (
+                  <button
+                    className="btn-primary !py-1 !px-2.5 text-xs"
+                    onClick={() => decide.mutate({ requestId: r.id, decision: 'approve' })}
+                  >
+                    Approve
+                  </button>
+                )}
               </div>
             ) : (
               <span className={`chip shrink-0 ${REQUEST_STATUS_CLASS[r.status]}`}>

@@ -36,6 +36,10 @@ export function PayrollInvoiceModal({
   onClose: () => void
 }) {
   const payEmployee = usePayEmployee()
+  // Server-side (record_payroll_payment) is the real gate -- this just avoids
+  // a round-trip error for the common case of trying to pay out a period
+  // that's still accumulating hours.
+  const periodHasEnded = period.period_end < new Date().toISOString().slice(0, 10)
   const rows = useMemo(() => groupPayrollEntries(entries, groupBy), [entries, groupBy])
   const totalHours = rows.reduce((sum, li) => sum + li.hours, 0)
   const totalAmount = rows.reduce((sum, li) => sum + li.amount, 0)
@@ -104,6 +108,10 @@ export function PayrollInvoiceModal({
           {existingPayment ? (
             <span className="chip bg-cream-200 text-ink-600">
               Paid {longDate(existingPayment.paid_at)} · {money(existingPayment.amount)}
+            </span>
+          ) : rows.length > 0 && periodId && profileId && !periodHasEnded ? (
+            <span className="chip bg-cream-200 text-ink-600">
+              Available once this period ends ({longDate(period.period_end)})
             </span>
           ) : (
             rows.length > 0 &&

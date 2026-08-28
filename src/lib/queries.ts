@@ -989,7 +989,11 @@ export function usePayrollEntries(periodStart?: string, periodEnd?: string) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('time_entry_costs')
-        .select('billable_amount, user_id, profiles(full_name), project:projects(id, name), time_entries(duration_minutes)')
+        // cost_amount (hours x the person's pay rate) is what payroll owes them --
+        // billable_amount (hours x the client's bill rate) is a different number
+        // entirely, for invoicing the client, and is 0 for anyone not billed out
+        // (e.g. most contractors), which used to show as a misleading $0 owed here.
+        .select('cost_amount, user_id, profiles(full_name), project:projects(id, name), time_entries(duration_minutes)')
         .gte('entry_date', periodStart as string)
         .lte('entry_date', periodEnd as string)
       if (error) throw new Error(error.message)
@@ -1006,7 +1010,7 @@ export function usePayrollEntries(periodStart?: string, periodEnd?: string) {
           project_id: project.id,
           project_name: project.name,
           hours: minutes / 60,
-          amount: Number(row.billable_amount ?? 0),
+          amount: Number(row.cost_amount ?? 0),
         })
       }
       return rows

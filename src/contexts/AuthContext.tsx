@@ -23,6 +23,12 @@ interface AuthContextValue {
   isPayrollAdmin: boolean
   signInWithPassword: (email: string, password: string) => Promise<{ error: string | null }>
   signInWithMagicLink: (email: string) => Promise<{ error: string | null }>
+  /** Full-page redirect to Google; resolves (almost) immediately, before the
+   *  redirect happens, so an error here means the request itself failed
+   *  (e.g. the provider isn't configured) -- a rejection *after* Google
+   *  hands back (wrong email domain, no invite) instead lands back on
+   *  /login with an error in the URL, which Login.tsx reads separately. */
+  signInWithGoogle: () => Promise<{ error: string | null }>
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
   /** Sets a new password on the current session — works whether the person
@@ -97,6 +103,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error?.message ?? null }
   }
 
+  async function signInWithGoogle() {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin,
+        // `hd` narrows Google's own account chooser to the work domain -- a UX
+        // hint only (Google enforces it for Workspace domains, not a hard
+        // guarantee); the real enforcement is the restrict_new_auth_users_to_org_domain
+        // trigger on auth.users, which rejects anyone else outright.
+        queryParams: { hd: 'kofapg.com', prompt: 'select_account' },
+      },
+    })
+    return { error: error?.message ?? null }
+  }
+
   async function signOut() {
     await supabase.auth.signOut()
     setSession(null)
@@ -127,6 +148,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isPayrollAdmin: profile?.role === 'admin' || profile?.role === 'billing_finance',
     signInWithPassword,
     signInWithMagicLink,
+    signInWithGoogle,
     signOut,
     refreshProfile,
     updatePassword,

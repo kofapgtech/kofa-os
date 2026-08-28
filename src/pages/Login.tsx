@@ -1,8 +1,32 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { Loader2, LogIn, Mail } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Logo } from '@/components/Logo'
+
+/** Google's official four-color "G" mark -- lucide-react has no brand icons. */
+function GoogleIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 18 18" aria-hidden="true">
+      <path
+        fill="#4285F4"
+        d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62Z"
+      />
+      <path
+        fill="#34A853"
+        d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.81.54-1.85.86-3.04.86-2.34 0-4.32-1.58-5.03-3.71H.98v2.33A9 9 0 0 0 9 18Z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M3.97 10.71a5.4 5.4 0 0 1 0-3.42V4.96H.98a9 9 0 0 0 0 8.08l2.99-2.33Z"
+      />
+      <path
+        fill="#EA4335"
+        d="M9 3.58c1.32 0 2.51.46 3.44 1.35l2.59-2.59C13.46.89 11.43 0 9 0A9 9 0 0 0 .98 4.96l2.99 2.33C4.68 5.16 6.66 3.58 9 3.58Z"
+      />
+    </svg>
+  )
+}
 
 const DEMO_LOGINS = [
   { label: 'Jared Lewis — Admin', email: 'jared@kofapg.com', note: 'Sees money, capacity, everything' },
@@ -15,13 +39,28 @@ const DEMO_LOGINS = [
 const DEMO_PASSWORD = 'KofaDemo2026!'
 
 export function Login() {
-  const { session, signInWithPassword, signInWithMagicLink } = useAuth()
+  const { session, signInWithPassword, signInWithMagicLink, signInWithGoogle } = useAuth()
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sent, setSent] = useState(false)
+
+  // Google (or Supabase) can bounce back here with the failure in the URL --
+  // e.g. an email outside the work domain, rejected by the
+  // restrict_new_auth_users_to_org_domain DB trigger -- rather than as a
+  // rejected promise, since the whole sign-in happened via redirect.
+  useEffect(() => {
+    const params = new URLSearchParams(
+      window.location.hash ? window.location.hash.slice(1) : window.location.search,
+    )
+    const description = params.get('error_description')
+    if (description) {
+      setError(description.replace(/\+/g, ' '))
+      window.history.replaceState(null, '', window.location.pathname)
+    }
+  }, [])
 
   if (session) return <Navigate to="/" replace />
 
@@ -43,6 +82,12 @@ export function Login() {
     setBusy(false)
     if (error) setError(error)
     else setSent(true)
+  }
+
+  async function google() {
+    setError(null)
+    const { error } = await signInWithGoogle()
+    if (error) setError(error)
   }
 
   return (
@@ -114,6 +159,16 @@ export function Login() {
               <Mail size={16} /> Email me a magic link
             </button>
           </form>
+
+          <div className="my-4 flex items-center gap-3">
+            <span className="h-px flex-1 bg-cream-300" />
+            <span className="text-xs text-ink-400">or</span>
+            <span className="h-px flex-1 bg-cream-300" />
+          </div>
+
+          <button type="button" className="btn-ghost w-full" onClick={google} disabled={busy}>
+            <GoogleIcon /> Continue with Google
+          </button>
 
           <div className="mt-8 rounded-xl border border-cream-300 bg-white p-3">
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-500">

@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import {
   Building2,
   CalendarDays,
   Check,
   ChevronDown,
+  ChevronRight,
   Clock,
   DollarSign,
   Flame,
@@ -33,9 +34,9 @@ import {
   useDeleteTaskHourAllocation,
   useDepartments,
   useProfileRates,
+  useProjectBudgets,
   useRequestTimeExtension,
   useRequestWorkstreamBudget,
-  useSetTaskAssignees,
   useSetTaskHourAllocation,
   useTaskAssignees,
   useTaskHourAllocations,
@@ -156,16 +157,30 @@ export function TaskViews({ tasks, people, hoursByTask, projectId, projectNames,
       {filtered.length === 0 ? (
         <EmptyState title="No tasks match these filters." />
       ) : mode === 'list' ? (
-        <ListView
-          tasks={filtered}
-          nameById={nameById}
-          assigneesByTask={assigneesByTask}
-          hoursByTask={hoursByTask}
-          projectNames={projectNames}
-          onOpen={setSelected}
-        />
+        projectId ? (
+          <ListView
+            tasks={filtered}
+            nameById={nameById}
+            assigneesByTask={assigneesByTask}
+            hoursByTask={hoursByTask}
+            projectNames={projectNames}
+            onOpen={setSelected}
+          />
+        ) : (
+          <GroupedListView
+            tasks={filtered}
+            nameById={nameById}
+            assigneesByTask={assigneesByTask}
+            hoursByTask={hoursByTask}
+            onOpen={setSelected}
+          />
+        )
       ) : mode === 'board' ? (
-        <BoardView tasks={filtered} nameById={nameById} assigneesByTask={assigneesByTask} onOpen={setSelected} />
+        projectId ? (
+          <BoardView tasks={filtered} nameById={nameById} assigneesByTask={assigneesByTask} onOpen={setSelected} />
+        ) : (
+          <GroupedBoardView tasks={filtered} nameById={nameById} assigneesByTask={assigneesByTask} onOpen={setSelected} />
+        )
       ) : (
         <CalendarView tasks={filtered} onOpen={setSelected} />
       )}
@@ -234,14 +249,10 @@ function AssigneeCell({ ids, nameById }: { ids: string[]; nameById: Record<strin
  *  assigning routes within the team it was handed to. Anyone already
  *  selected stays visible/removable even if they're not (or no longer) a
  *  member, so switching workstreams never silently disappears a pick. */
-function assigneePool(people: Profile[], departmentId: string, selected: string[]) {
-  if (!departmentId) return people
-  return people.filter((p) => p.department_id === departmentId || selected.includes(p.id))
-}
-
-/** Picks which workstream (if any) a task is routed to. Setting one notifies
- *  that workstream's lead(s) to assign it to someone on their team, and is
- *  also what a task's hour allocations draw budget from. */
+/** Picks which workstream a task is routed to. Required on every task now
+ *  that assignment happens only via workstream + hour allocations (no more
+ *  standalone "assign directly" tasks) -- it also notifies the workstream's
+ *  lead(s), and is what a task's hour allocations draw budget from. */
 function DepartmentSelect({ value, onChange }: { value: string; onChange: (id: string) => void }) {
   const { data: departments = [] } = useDepartments()
   return (
@@ -249,8 +260,10 @@ function DepartmentSelect({ value, onChange }: { value: string; onChange: (id: s
       <label className="label flex items-center gap-1.5">
         <Building2 size={13} /> Workstream
       </label>
-      <select className="input" value={value} onChange={(e) => onChange(e.target.value)}>
-        <option value="">No workstream — assign directly</option>
+      <select className="input" value={value} onChange={(e) => onChange(e.target.value)} required>
+        <option value="" disabled>
+          Select a workstream…
+        </option>
         {departments.map((d) => (
           <option key={d.id} value={d.id}>
             {d.name}
@@ -261,93 +274,339 @@ function DepartmentSelect({ value, onChange }: { value: string; onChange: (id: s
   )
 }
 
-/** Combobox-style multi-select: selected people show as removable pills in
- *  the trigger, with a dropdown list below for adding/removing more. */
-function AssigneePicker({
-  people,
-  selected,
-  onToggle,
-}: {
-  people: Profile[]
-  selected: string[]
-  onToggle: (id: string) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const rootRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    function onDocMouseDown(e: MouseEvent) {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDocMouseDown)
-    return () => document.removeEventListener('mousedown', onDocMouseDown)
-  }, [])
-
-  const selectedPeople = people.filter((p) => selected.includes(p.id))
-
-  return (
-    <div ref={rootRef} className="relative">
-      <div
-        onClick={() => setOpen((v) => !v)}
-        className="input flex min-h-[2.5rem] cursor-pointer flex-wrap items-center gap-1.5"
-      >
-        {selectedPeople.length === 0 ? (
-          <span className="text-ink-400">Unassigned</span>
-        ) : (
-          selectedPeople.map((p) => (
-            <span
-              key={p.id}
-              className="inline-flex items-center gap-1 rounded-full bg-brand-700 py-0.5 pl-2.5 pr-1.5 text-xs font-medium text-white"
-            >
-              {p.full_name}
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onToggle(p.id)
-                }}
-                className="rounded-full p-0.5 hover:bg-brand-600"
-              >
-                <X size={11} />
-              </button>
-            </span>
-          ))
-        )}
-        <ChevronDown
-          size={15}
-          className={`ml-auto shrink-0 text-ink-400 transition-transform ${open ? 'rotate-180' : ''}`}
-        />
-      </div>
-
-      {open && (
-        <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-xl border border-cream-300 bg-white py-1 shadow-lg">
-          {people.length === 0 && <p className="px-3 py-1.5 text-sm text-ink-400">No one to assign</p>}
-          {people.map((p) => {
-            const active = selected.includes(p.id)
-            return (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => onToggle(p.id)}
-                className={`block w-full px-3 py-1.5 text-left text-sm hover:bg-cream-100 ${
-                  active ? 'font-semibold text-brand-700' : 'text-ink-700'
-                }`}
-              >
-                {p.full_name}
-              </button>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ------------------------------------------------------------------- views
 
 type TaskSortKey = 'task' | 'status' | 'assignee' | 'priority' | 'due' | 'logged'
 
 const PRIORITY_RANK: Record<Task['priority'], number> = { low: 0, medium: 1, high: 2, urgent: 3 }
+
+// ----------------------------------------------- workstream grouping (MyWork)
+
+interface WorkstreamGroup {
+  id: string | null
+  label: string
+  color?: string
+  tasks: Task[]
+}
+
+/** Buckets tasks by their own workstream (`Task.department_id`), not the
+ *  project's — a task can be routed to a different workstream than the
+ *  project it lives under. Tasks with no workstream land in a trailing
+ *  "No workstream" bucket. Only buckets that actually have a task in them
+ *  are returned, so MyWork shows one table per workstream the user
+ *  currently has work in, not every workstream in the org. */
+function groupTasksByWorkstream(tasks: Task[], departments: { id: string; name: string; color: string }[]) {
+  const byDept = new Map<string, WorkstreamGroup>()
+  for (const t of tasks) {
+    const key = t.department_id ?? '__none__'
+    if (!byDept.has(key)) {
+      const dept = t.department_id ? departments.find((d) => d.id === t.department_id) : undefined
+      byDept.set(key, { id: t.department_id, label: dept?.name ?? 'No workstream', color: dept?.color, tasks: [] })
+    }
+    byDept.get(key)!.tasks.push(t)
+  }
+  return Array.from(byDept.values()).sort((a, b) => {
+    if (a.id === null) return 1
+    if (b.id === null) return -1
+    return a.label.localeCompare(b.label)
+  })
+}
+
+interface ProjectInfo {
+  accountId: string
+  accountName: string
+  name: string
+}
+
+interface AccountGroup {
+  accountId: string
+  accountName: string
+  projects: { projectId: string; projectName: string; tasks: Task[] }[]
+}
+
+/** Nests one workstream's tasks as Account -> Project -> Task, via each
+ *  task's project (project_id -> {account_id, account_name, name} from
+ *  `useProjectBudgets`). A task whose project can't be resolved (shouldn't
+ *  happen in practice) falls into an "Unknown account/project" bucket
+ *  rather than being silently dropped. */
+function groupTasksByAccountProject(tasks: Task[], projectInfo: Record<string, ProjectInfo>): AccountGroup[] {
+  const byAccount = new Map<string, { accountId: string; accountName: string; projects: Map<string, { projectId: string; projectName: string; tasks: Task[] }> }>()
+  for (const t of tasks) {
+    const info = projectInfo[t.project_id]
+    const accountId = info?.accountId ?? '__unknown__'
+    const accountName = info?.accountName ?? 'Unknown account'
+    const projectName = info?.name ?? 'Unknown project'
+    if (!byAccount.has(accountId)) byAccount.set(accountId, { accountId, accountName, projects: new Map() })
+    const acc = byAccount.get(accountId)!
+    if (!acc.projects.has(t.project_id)) acc.projects.set(t.project_id, { projectId: t.project_id, projectName, tasks: [] })
+    acc.projects.get(t.project_id)!.tasks.push(t)
+  }
+  return Array.from(byAccount.values())
+    .map((a) => ({ ...a, projects: Array.from(a.projects.values()).sort((x, y) => x.projectName.localeCompare(y.projectName)) }))
+    .sort((a, b) => a.accountName.localeCompare(b.accountName))
+}
+
+/** MyWork's replacement for the flat `ListView`: one card per workstream the
+ *  user has a task in, each an indented Account -> Project -> Task tree
+ *  (expanded by default, collapsible per account/project). */
+function GroupedListView({
+  tasks,
+  nameById,
+  assigneesByTask,
+  hoursByTask,
+  onOpen,
+}: {
+  tasks: Task[]
+  nameById: Record<string, string>
+  assigneesByTask: Record<string, string[]>
+  hoursByTask: Record<string, number>
+  onOpen: (t: Task) => void
+}) {
+  const { data: departments = [] } = useDepartments()
+  const { data: projectBudgets = [] } = useProjectBudgets()
+  const projectInfo = useMemo(
+    () =>
+      Object.fromEntries(
+        projectBudgets.map((p) => [p.project_id, { accountId: p.account_id, accountName: p.account_name, name: p.name }]),
+      ) as Record<string, ProjectInfo>,
+    [projectBudgets],
+  )
+  const workstreamGroups = useMemo(() => groupTasksByWorkstream(tasks, departments), [tasks, departments])
+
+  return (
+    <div className="space-y-6">
+      {workstreamGroups.map((wg) => (
+        <WorkstreamTable
+          key={wg.id ?? '__none__'}
+          label={wg.label}
+          color={wg.color}
+          tasks={wg.tasks}
+          projectInfo={projectInfo}
+          nameById={nameById}
+          assigneesByTask={assigneesByTask}
+          hoursByTask={hoursByTask}
+          onOpen={onOpen}
+        />
+      ))}
+    </div>
+  )
+}
+
+/** One workstream's card: sortable header row, then an Account -> Project ->
+ *  Task tree in the body. Sorting applies within each project's task list
+ *  (sorting across the whole tree would scramble the grouping). Collapse
+ *  state is a plain set of group keys, empty by default so everything
+ *  starts expanded. */
+function WorkstreamTable({
+  label,
+  color,
+  tasks,
+  projectInfo,
+  nameById,
+  assigneesByTask,
+  hoursByTask,
+  onOpen,
+}: {
+  label: string
+  color?: string
+  tasks: Task[]
+  projectInfo: Record<string, ProjectInfo>
+  nameById: Record<string, string>
+  assigneesByTask: Record<string, string[]>
+  hoursByTask: Record<string, number>
+  onOpen: (t: Task) => void
+}) {
+  const update = useUpdateTask()
+  const sort = useTableSort<TaskSortKey>()
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+
+  const toggle = (key: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+
+  const accountGroups = useMemo(() => groupTasksByAccountProject(tasks, projectInfo), [tasks, projectInfo])
+
+  const sortAccessor = (t: Task, key: TaskSortKey) => {
+    switch (key) {
+      case 'task':
+        return t.title.toLowerCase()
+      case 'status':
+        return TASK_STATUS_ORDER.indexOf(t.status)
+      case 'assignee': {
+        const ids = assigneesByTask[t.id] ?? []
+        return ids.length ? (nameById[ids[0]] ?? '').toLowerCase() : null
+      }
+      case 'priority':
+        return PRIORITY_RANK[t.priority]
+      case 'due':
+        return t.due_date
+      case 'logged':
+        return hoursByTask[t.id] ?? 0
+      default:
+        return null
+    }
+  }
+
+  return (
+    <div className="card overflow-hidden">
+      <div className="flex items-center gap-2 border-b border-cream-300 bg-cream-100 px-4 py-2.5">
+        <span
+          className="h-2.5 w-2.5 shrink-0 rounded-full"
+          style={{ backgroundColor: color ?? '#d6d3d1' }}
+        />
+        <span className="text-sm font-semibold text-ink-900">{label}</span>
+        <span className="text-xs text-ink-500">
+          {tasks.length} task{tasks.length === 1 ? '' : 's'}
+        </span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[720px]">
+          <thead className="border-b border-cream-300 bg-cream-100/60">
+            <tr>
+              <SortableTh label="Task" sortKey="task" sort={sort} />
+              <SortableTh label="Status" sortKey="status" sort={sort} />
+              <SortableTh label="Assignee" sortKey="assignee" sort={sort} />
+              <SortableTh label="Priority" sortKey="priority" sort={sort} />
+              <SortableTh label="Due" sortKey="due" sort={sort} />
+              <SortableTh label="Logged / Est." sortKey="logged" sort={sort} align="right" className="text-right" />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-cream-200">
+            {accountGroups.map((acc) => {
+              const accKey = `acc-${acc.accountId}`
+              const accCollapsed = collapsed.has(accKey)
+              const accTaskCount = acc.projects.reduce((n, p) => n + p.tasks.length, 0)
+              return (
+                <Fragment key={accKey}>
+                  <tr className="bg-cream-50">
+                    <td colSpan={6} className="td py-2">
+                      <button
+                        type="button"
+                        onClick={() => toggle(accKey)}
+                        className="flex items-center gap-1.5 text-sm font-semibold text-ink-800"
+                      >
+                        {accCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
+                        {acc.accountName}
+                        <span className="font-normal text-ink-400">({accTaskCount})</span>
+                      </button>
+                    </td>
+                  </tr>
+                  {!accCollapsed &&
+                    acc.projects.map((proj) => {
+                      const projKey = `${accKey}-proj-${proj.projectId}`
+                      const projCollapsed = collapsed.has(projKey)
+                      const sorted = sortRows(proj.tasks, sort.sortKey, sort.sortDir, sortAccessor)
+                      return (
+                        <Fragment key={projKey}>
+                          <tr>
+                            <td colSpan={6} className="td py-1.5 pl-8">
+                              <button
+                                type="button"
+                                onClick={() => toggle(projKey)}
+                                className="flex items-center gap-1.5 text-sm font-medium text-ink-700"
+                              >
+                                {projCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                                {proj.projectName}
+                                <span className="font-normal text-ink-400">({proj.tasks.length})</span>
+                              </button>
+                            </td>
+                          </tr>
+                          {!projCollapsed &&
+                            sorted.map((t) => {
+                              const overdue = t.due_date && t.status !== 'done' && new Date(t.due_date) < new Date()
+                              const urgent = t.priority === 'urgent'
+                              return (
+                                <tr key={t.id} className={`hover:bg-cream-100 ${urgent ? 'bg-rose-50/40' : ''}`}>
+                                  <td className={`td pl-14 ${urgent ? 'border-l-4 border-l-rose-500' : ''}`}>
+                                    <button className="text-left" onClick={() => onOpen(t)}>
+                                      <span className="flex items-center gap-1.5 font-medium text-ink-900 hover:text-brand-700">
+                                        {urgent && <Flame size={14} className="shrink-0 text-rose-600" />}
+                                        {t.title}
+                                      </span>
+                                    </button>
+                                  </td>
+                                  <td className="td">
+                                    <select
+                                      className={`chip cursor-pointer border-0 ${TASK_STATUS_CLASS[t.status]}`}
+                                      value={t.status}
+                                      onChange={(e) =>
+                                        update.mutate({ id: t.id, patch: { status: e.target.value as TaskStatus } })
+                                      }
+                                    >
+                                      {TASK_STATUS_ORDER.map((s) => (
+                                        <option key={s} value={s}>
+                                          {TASK_STATUS_LABEL[s]}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </td>
+                                  <td className="td">
+                                    <AssigneeCell ids={assigneesByTask[t.id] ?? []} nameById={nameById} />
+                                  </td>
+                                  <td className="td">
+                                    <Chip className={PRIORITY_CLASS[t.priority]}>{t.priority}</Chip>
+                                  </td>
+                                  <td className={`td ${overdue ? 'font-semibold text-rose-600' : ''}`}>
+                                    {shortDate(t.due_date)}
+                                  </td>
+                                  <td className="td text-right tabular-nums">
+                                    {hours(hoursByTask[t.id] ?? 0)}
+                                    <span className="text-ink-400"> / {t.estimated_hours ?? '\u2014'}h</span>
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                        </Fragment>
+                      )
+                    })}
+                </Fragment>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+/** MyWork's replacement for the flat `BoardView`: the same kanban, just
+ *  rendered once per workstream the user has a task in (no Account/Project
+ *  nesting inside a board -- that would fragment the columns too far). */
+function GroupedBoardView({
+  tasks,
+  nameById,
+  assigneesByTask,
+  onOpen,
+}: {
+  tasks: Task[]
+  nameById: Record<string, string>
+  assigneesByTask: Record<string, string[]>
+  onOpen: (t: Task) => void
+}) {
+  const { data: departments = [] } = useDepartments()
+  const workstreamGroups = useMemo(() => groupTasksByWorkstream(tasks, departments), [tasks, departments])
+
+  return (
+    <div className="space-y-8">
+      {workstreamGroups.map((wg) => (
+        <div key={wg.id ?? '__none__'}>
+          <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-ink-700">
+            <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: wg.color ?? '#d6d3d1' }} />
+            {wg.label}
+            <span className="font-normal text-ink-400">
+              {wg.tasks.length} task{wg.tasks.length === 1 ? '' : 's'}
+            </span>
+          </h3>
+          <BoardView tasks={wg.tasks} nameById={nameById} assigneesByTask={assigneesByTask} onOpen={onOpen} />
+        </div>
+      ))}
+    </div>
+  )
+}
 
 function ListView({
   tasks,
@@ -646,8 +905,6 @@ function TaskPanel({
   onOpenSubtask: (t: Task) => void
 }) {
   const update = useUpdateTask()
-  const setAssignees = useSetTaskAssignees()
-  const { profile } = useAuth()
   const { start, running } = useTimer()
   const [draft, setDraft] = useState(task)
   const [addingSubtask, setAddingSubtask] = useState(false)
@@ -657,16 +914,9 @@ function TaskPanel({
     [allTasks, task.id],
   )
 
-  const pool = assigneePool(people, draft.department_id ?? '', assigneeIds)
-
   function patch(next: Partial<Task>) {
     setDraft((d) => ({ ...d, ...next }))
     update.mutate({ id: task.id, patch: next })
-  }
-
-  function toggleAssignee(id: string) {
-    const next = assigneeIds.includes(id) ? assigneeIds.filter((a) => a !== id) : [...assigneeIds, id]
-    setAssignees.mutate({ task_id: task.id, profile_ids: next, org_id: task.org_id, added_by: profile!.id })
   }
 
   return (
@@ -732,10 +982,20 @@ function TaskPanel({
 
       <div className="mt-3">
         <label className="label">Assignees</label>
-        <AssigneePicker people={pool} selected={assigneeIds} onToggle={toggleAssignee} />
+        {assigneeIds.length === 0 ? (
+          <p className="text-sm text-ink-500">Nobody yet — add an hour allocation below to assign someone.</p>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {assigneeIds.map((id) => (
+              <span key={id} className="chip bg-cream-200 text-ink-700">
+                {people.find((p) => p.id === id)?.full_name ?? 'Unknown'}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
-      <HourAllocationsSection task={draft} assigneeIds={assigneeIds} people={people} />
+      <HourAllocationsSection task={draft} people={people} />
 
       <div className="mt-4">
         <label className="label">Description</label>
@@ -838,11 +1098,9 @@ function currentMonthStart(): string {
  *  next one instead of losing them. */
 function HourAllocationsSection({
   task,
-  assigneeIds,
   people,
 }: {
   task: Task
-  assigneeIds: string[]
   people: Profile[]
 }) {
   const { profile, isLeadership } = useAuth()
@@ -869,6 +1127,10 @@ function HourAllocationsSection({
   const nameFor = (id: string) => people.find((p) => p.id === id)?.full_name ?? 'Unknown'
   const rateFor = (id: string) => rates.find((r) => r.profile_id === id)?.bill_rate ?? null
   const monthRows = allocations.filter((a) => a.budget_month === month)
+  // Allocating hours to someone is now the only way to put them on this task
+  // (see the task_hour_allocations_sync_assignee DB trigger), so the pool to
+  // choose from is this workstream's members, not the task's current assignees.
+  const workstreamMembers = people.filter((p) => p.department_id === task.department_id)
 
   if (!task.department_id) {
     return (
@@ -1038,17 +1300,17 @@ function HourAllocationsSection({
 
       {isLeadership && (
         <>
-          {assigneeIds.length === 0 ? (
-            <p className="mt-2 text-xs text-ink-500">Assign someone to this task before committing hours.</p>
+          {workstreamMembers.length === 0 ? (
+            <p className="mt-2 text-xs text-ink-500">No one in this workstream yet.</p>
           ) : (
             <div className="mt-2 flex flex-wrap items-end gap-2">
               <div className="min-w-[10rem] flex-1">
                 <label className="label">Assignee</label>
                 <select className="input" value={draftProfileId} onChange={(e) => setDraftProfileId(e.target.value)}>
                   <option value="">Choose…</option>
-                  {assigneeIds.map((id) => (
-                    <option key={id} value={id}>
-                      {nameFor(id)}
+                  {workstreamMembers.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.full_name}
                     </option>
                   ))}
                 </select>
@@ -1271,18 +1533,11 @@ function NewTaskPanel({
   const { profile } = useAuth()
   const create = useCreateTask()
   const [title, setTitle] = useState('')
-  const [assigneeIds, setAssigneeIds] = useState<string[]>([])
   const [departmentId, setDepartmentId] = useState('')
   const [due, setDue] = useState('')
   const [estimate, setEstimate] = useState('')
   const [priority, setPriority] = useState<Task['priority']>('medium')
   const [note, setNote] = useState('')
-
-  const pool = assigneePool(people, departmentId, assigneeIds)
-
-  function toggleAssignee(id: string) {
-    setAssigneeIds((ids) => (ids.includes(id) ? ids.filter((a) => a !== id) : [...ids, id]))
-  }
 
   return (
     <Drawer title={parentTaskId ? 'New subtask' : 'New task'} onClose={onClose}>
@@ -1298,22 +1553,10 @@ function NewTaskPanel({
           />
         </div>
         <div>
-          <DepartmentSelect
-            value={departmentId}
-            onChange={(id) => {
-              setDepartmentId(id)
-              setAssigneeIds([])
-            }}
-          />
-          {departmentId && (
-            <p className="mt-1 text-xs text-ink-500">
-              Leave assignees blank to let the workstream's lead pick who on their team does it.
-            </p>
-          )}
-        </div>
-        <div>
-          <label className="label">Assignees</label>
-          <AssigneePicker people={pool} selected={assigneeIds} onToggle={toggleAssignee} />
+          <DepartmentSelect value={departmentId} onChange={(id) => setDepartmentId(id)} />
+          <p className="mt-1 text-xs text-ink-500">
+            Assign people once the task exists, via hour allocations in the workstream's budget.
+          </p>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -1358,15 +1601,14 @@ function NewTaskPanel({
 
         <button
           className="btn-primary w-full"
-          disabled={!title.trim() || create.isPending}
+          disabled={!title.trim() || !departmentId || create.isPending}
           onClick={async () => {
             await create.mutateAsync({
               org_id: profile!.org_id,
               project_id: projectId,
               title: title.trim(),
               description: note.trim() || null,
-              assignee_ids: assigneeIds,
-              department_id: departmentId || null,
+              department_id: departmentId,
               due_date: due || null,
               estimated_hours: estimate ? Number(estimate) : null,
               priority,
