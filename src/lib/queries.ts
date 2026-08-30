@@ -151,11 +151,37 @@ export function useUpdateCostRate() {
   })
 }
 
+type InviteEmployeeResult = { id: string; claimed?: boolean }
+
+/**
+ * supabase-js throws away Edge Function error bodies: `error.message` for any
+ * non-2xx is the useless string "Edge Function returned a non-2xx status code",
+ * which is what admins actually saw when an invite failed. The real reason is
+ * in the JSON body on `error.context` (a Response), so read it back out.
+ */
+async function edgeFunctionError(error: Error): Promise<string> {
+  const res = (error as { context?: Response }).context
+  if (res && typeof res.json === 'function') {
+    try {
+      const body = await res.clone().json()
+      if (body?.error) return String(body.error)
+    } catch {
+      // Non-JSON body (a gateway error page, say) — fall through.
+    }
+  }
+  return error.message
+}
+
 /**
  * Creating an employee needs a real auth.users row, which the anon key can't
  * create — routed through the invite-employee Edge Function, which uses the
  * service role to send the invite. The profiles row is built automatically
- * by the existing handle_new_user() trigger from the metadata passed here.
+ * by the ensure_profile_for_auth_user() trigger from the metadata passed here.
+ *
+ * If the person already has an auth account (they signed in with Google on the
+ * work domain before anyone invited them) the function adopts that account and
+ * creates their roster row directly instead of sending an invite — it comes
+ * back as `claimed: true`, and they're added straight away with no email.
  */
 export function useInviteEmployee() {
   const qc = useQueryClient()
@@ -170,15 +196,20 @@ export function useInviteEmployee() {
       capacity_hours_per_week: number
       employment_type: 'employee' | 'contractor'
     }) => {
-      const { data, error } = await supabase.functions.invoke('invite-employee', {
-        body: { ...payload, redirect_to: window.location.origin },
-      })
-      if (error) throw new Error(error.message)
-      return data
+      const { data, error } = await supabase.functions.invoke<InviteEmployeeResult>(
+        'invite-employee',
+        { body: { ...payload, redirect_to: window.location.origin } },
+      )
+      if (error) throw new Error(await edgeFunctionError(error))
+      return data as InviteEmployeeResult
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ['profiles'] })
-      toast.success('Invite sent', "They'll get an email to set up access.")
+      if (result?.claimed) {
+        toast.success('Added to the roster', 'They already had an account, so no invite was needed.')
+      } else {
+        toast.success('Invite sent', "They'll get an email to set up access.")
+      }
     },
     onError: (err: Error) => toast.error("Couldn't send invite", err.message),
   })

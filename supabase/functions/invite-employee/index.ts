@@ -8,11 +8,22 @@
 // every other admin-tier permission (see is_admin_or_executive() in the
 // database) except this one - inviting a new employee stays admin/HR-only.
 //
-// The profiles row is NOT inserted here - the existing `on_auth_user_created`
-// trigger (handle_new_user()) already builds it from the invited user's
-// raw_user_meta_data the instant the auth.users row is created, with
-// `on conflict (id) do nothing`. This function's only job is to authorize
-// the caller and pass the right metadata through inviteUserByEmail.
+// The profiles row is NOT normally inserted here - the `on_auth_user_created`
+// trigger (ensure_profile_for_auth_user()) already builds it from the invited
+// user's raw_user_meta_data the instant the auth.users row is created, with
+// `on conflict (id) do nothing`. This function's main job is to authorize the
+// caller and pass the right metadata through inviteUserByEmail.
+//
+// The one exception is the CLAIM path. If the person already has an auth
+// account - most often because they signed in with Google on the org's own
+// email domain before anyone invited them - inviteUserByEmail can never
+// succeed for them: GoTrue answers 422 email_exists, permanently. Before the
+// sign-in safety net existed such an account could also have no profile at
+// all, which left them invisible on the roster and impossible to add through
+// any UI. So on email_exists we hand off to admin_claim_existing_auth_user(),
+// which builds the roster row the admin just described against the account
+// that already exists - or reports `already_on_roster` when there is nothing
+// to fix.
 //
 // The invite email's redirect link uses whichever origin the caller sent as
 // redirect_to (the browser's own window.location.origin - correct whether
@@ -105,8 +116,8 @@ Deno.serve(async (req) => {
 
     const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
       redirectTo,
-      // Read by the on_auth_user_created -> handle_new_user() trigger, which
-      // builds the profiles row from this metadata.
+      // Read by the on_auth_user_created -> ensure_profile_for_auth_user()
+      // trigger, which builds the profiles row from this metadata.
       data: {
         org_id: callerProfile.org_id,
         department_id,
@@ -117,7 +128,40 @@ Deno.serve(async (req) => {
         employment_type,
       },
     })
-    if (inviteError) return json({ error: inviteError.message }, 400)
+
+    if (inviteError) {
+      const alreadyExists =
+        (inviteError as { code?: string }).code === 'email_exists' ||
+        /already been registered/i.test(inviteError.message)
+
+      if (!alreadyExists) return json({ error: inviteError.message }, 400)
+
+      // They already have an auth account. Adopt it rather than dead-ending:
+      // the RPC creates the profile the admin just described, and tells us
+      // apart the case where they were already on the roster all along.
+      const { data: claimedId, error: claimError } = await admin.rpc('admin_claim_existing_auth_user', {
+        p_email: email,
+        p_org_id: callerProfile.org_id,
+        p_full_name: full_name,
+        p_role: role,
+        p_department_id: department_id,
+        p_title: title,
+        p_capacity: capacity_hours_per_week,
+        p_employment_type: employment_type,
+      })
+
+      if (claimError) {
+        if (/already_on_roster/.test(claimError.message)) {
+          return json(
+            { error: `${email} is already on the roster - search the Employees list to edit them.` },
+            409,
+          )
+        }
+        return json({ error: claimError.message }, 400)
+      }
+
+      return json({ id: claimedId, claimed: true })
+    }
 
     return json({ id: invited.user.id })
   } catch (err) {
