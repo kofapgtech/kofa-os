@@ -16,6 +16,8 @@ interface AuthContextValue {
   /** Everything admin can do except invite/create/delete a user identity. */
   isExecutive: boolean
   isAdminOrExecutive: boolean
+  /** Owner of the ACTIVE workspace — settings and ownership transfer. */
+  isOwner: boolean
   /** Sees rates, costs, and budget dollar figures wherever they appear —
    *  a wider set than isLeadership (adds billing_finance). */
   hasFinancialAccess: boolean
@@ -47,8 +49,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function loadProfile(userId: string) {
     const { data, error } = await supabase
       .from('profiles')
+      // RLS scopes profiles to the active workspace, so filtering on the person
+      // returns exactly their membership in the workspace they're currently in.
       .select('*')
-      .eq('id', userId)
+      .eq('user_id', userId)
       .maybeSingle()
 
     if (error) {
@@ -139,6 +143,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isAdmin: profile?.role === 'admin',
     isExecutive: profile?.role === 'executive',
     isAdminOrExecutive: profile?.role === 'admin' || profile?.role === 'executive',
+    isOwner: profile?.is_owner === true,
     hasFinancialAccess:
       profile?.role === 'admin' ||
       profile?.role === 'dept_lead' ||

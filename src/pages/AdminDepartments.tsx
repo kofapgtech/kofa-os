@@ -79,8 +79,8 @@ function DepartmentsCard({ onSelect }: { onSelect: (d: Department) => void }) {
     )
     const leads = [
       ...members.filter((p) => p.role === 'dept_lead'),
-      ...people.filter((p) => additionalLeadIds.has(p.id)),
-    ].filter((p, i, arr) => arr.findIndex((x) => x.id === p.id) === i)
+      ...people.filter((p) => additionalLeadIds.has(p.user_id)),
+    ].filter((p, i, arr) => arr.findIndex((x) => x.user_id === p.user_id) === i)
     return { department: d, members, leads }
   })
   const sorted = sortRows(rows, sort.sortKey, sort.sortDir, (r, key) => {
@@ -196,12 +196,12 @@ function DepartmentMembersModal({ department, onClose }: { department: Departmen
   const additionalLeadIds = new Set(
     departmentLeads.filter((dl) => dl.department_id === department.id).map((dl) => dl.profile_id),
   )
-  const additionalLeads = people.filter((p) => additionalLeadIds.has(p.id))
+  const additionalLeads = people.filter((p) => additionalLeadIds.has(p.user_id))
   const availableLeads = people.filter(
     (p) =>
       p.is_active &&
       (p.role === 'admin' || p.role === 'executive' || p.role === 'hr_manager') &&
-      !additionalLeadIds.has(p.id),
+      !additionalLeadIds.has(p.user_id),
   )
 
   return (
@@ -222,7 +222,7 @@ function DepartmentMembersModal({ department, onClose }: { department: Departmen
             const canToggleLead = m.role === 'staff' || isLead
             return (
               <li
-                key={m.id}
+                key={m.user_id}
                 className="flex items-center justify-between rounded-lg border border-cream-300 px-3 py-2 text-sm"
               >
                 <div className="min-w-0">
@@ -239,7 +239,7 @@ function DepartmentMembersModal({ department, onClose }: { department: Departmen
                       }`}
                       title={isLead ? 'Workstream lead — click to remove' : 'Make Workstream lead'}
                       disabled={update.isPending}
-                      onClick={() => update.mutate({ id: m.id, patch: { role: isLead ? 'staff' : 'dept_lead' } })}
+                      onClick={() => update.mutate({ id: m.user_id, patch: { role: isLead ? 'staff' : 'dept_lead' } })}
                     >
                       <Star size={13} fill={isLead ? 'currentColor' : 'none'} />
                       Lead
@@ -249,7 +249,7 @@ function DepartmentMembersModal({ department, onClose }: { department: Departmen
                     className="text-ink-400 hover:text-rose-600"
                     title="Remove from Workstream"
                     disabled={update.isPending}
-                    onClick={() => update.mutate({ id: m.id, patch: { department_id: null } })}
+                    onClick={() => update.mutate({ id: m.user_id, patch: { department_id: null } })}
                   >
                     <UserMinus size={16} />
                   </button>
@@ -264,7 +264,7 @@ function DepartmentMembersModal({ department, onClose }: { department: Departmen
         <select className="input" value={addId} onChange={(e) => setAddId(e.target.value)}>
           <option value="">Add a person…</option>
           {available.map((p) => (
-            <option key={p.id} value={p.id}>
+            <option key={p.user_id} value={p.user_id}>
               {p.full_name}
             </option>
           ))}
@@ -292,7 +292,7 @@ function DepartmentMembersModal({ department, onClose }: { department: Departmen
           <ul className="mb-3 space-y-1.5">
             {additionalLeads.map((p) => (
               <li
-                key={p.id}
+                key={p.user_id}
                 className="flex items-center justify-between rounded-lg border border-cream-300 px-3 py-2 text-sm"
               >
                 <div className="min-w-0">
@@ -305,7 +305,7 @@ function DepartmentMembersModal({ department, onClose }: { department: Departmen
                   className="shrink-0 text-ink-400 hover:text-rose-600"
                   title="Remove as lead"
                   disabled={removeLead.isPending}
-                  onClick={() => removeLead.mutate({ departmentId: department.id, profileId: p.id })}
+                  onClick={() => removeLead.mutate({ departmentId: department.id, profileId: p.user_id })}
                 >
                   <UserMinus size={16} />
                 </button>
@@ -318,7 +318,7 @@ function DepartmentMembersModal({ department, onClose }: { department: Departmen
           <select className="input" value={addLeadId} onChange={(e) => setAddLeadId(e.target.value)}>
             <option value="">Add a lead…</option>
             {availableLeads.map((p) => (
-              <option key={p.id} value={p.id}>
+              <option key={p.user_id} value={p.user_id}>
                 {p.full_name} ({ROLE_LABEL[p.role]})
               </option>
             ))}

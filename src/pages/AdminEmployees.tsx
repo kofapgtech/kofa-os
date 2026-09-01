@@ -263,7 +263,7 @@ function EmployeesCard({ isAdmin, isHR }: { isAdmin: boolean; isHR: boolean }) {
                 const dept = departments.find((d) => d.id === p.department_id)
                 return (
                   <tr
-                    key={p.id}
+                    key={p.user_id}
                     className={`cursor-pointer border-b border-cream-200 last:border-0 hover:bg-cream-100 ${p.is_active ? '' : 'opacity-50'}`}
                     onClick={() => setEditing(p)}
                   >
@@ -294,7 +294,7 @@ function EmployeesCard({ isAdmin, isHR }: { isAdmin: boolean; isHR: boolean }) {
         <EmployeeModal
           person={editing}
           departments={departments}
-          rate={rates.find((r) => r.profile_id === editing.id) ?? null}
+          rate={rates.find((r) => r.profile_id === editing.user_id) ?? null}
           isAdmin={isAdmin}
           isHR={isHR}
           onClose={() => setEditing(null)}
@@ -371,7 +371,7 @@ function EmployeeModal({
   async function saveDetails() {
     const tasks: Promise<unknown>[] = [
       update.mutateAsync({
-        id: person.id,
+        id: person.user_id,
         patch: {
           full_name: fullName.trim(),
           title: empTitle.trim() || null,
@@ -388,7 +388,7 @@ function EmployeeModal({
     if (showExtraTabs) {
       tasks.push(
         updateRate.mutateAsync({
-          profileId: person.id,
+          profileId: person.user_id,
           orgId: person.org_id,
           costRate: costRate ? Number(costRate) : 0,
         }),
@@ -400,7 +400,7 @@ function EmployeeModal({
 
   async function saveSettings() {
     await update.mutateAsync({
-      id: person.id,
+      id: person.user_id,
       patch: {
         is_active: isActive,
         termination_date: terminationDate || null,
@@ -625,7 +625,7 @@ function EmployeeModal({
  */
 function AttachmentsTab({ employee }: { employee: Profile }) {
   const { profile } = useAuth()
-  const { data: attachments = [], isLoading } = useEmployeeAttachments(employee.id)
+  const { data: attachments = [], isLoading } = useEmployeeAttachments(employee.user_id)
   const addAttachment = useAddEmployeeAttachment()
   const deleteAttachment = useDeleteEmployeeAttachment()
   const [uploading, setUploading] = useState(false)
@@ -639,15 +639,15 @@ function AttachmentsTab({ employee }: { employee: Profile }) {
     setError(null)
     try {
       for (const file of Array.from(picked)) {
-        const path = `${employee.org_id}/${employee.id}/${Date.now()}-${file.name}`
+        const path = `${employee.org_id}/${employee.user_id}/${Date.now()}-${file.name}`
         const { error: uploadError } = await supabase.storage
           .from('employee-files')
           .upload(path, file, { contentType: file.type })
         if (uploadError) throw uploadError
         await addAttachment.mutateAsync({
           org_id: employee.org_id,
-          employee_id: employee.id,
-          uploaded_by: profile.id,
+          employee_id: employee.user_id,
+          uploaded_by: profile.user_id,
           file_path: path,
           file_name: file.name,
           file_size: file.size,
@@ -684,7 +684,7 @@ function AttachmentsTab({ employee }: { employee: Profile }) {
     setConfirmingDeleteId(null)
     if (!a) return
     await supabase.storage.from('employee-files').remove([a.file_path])
-    deleteAttachment.mutate({ id: a.id, employeeId: employee.id })
+    deleteAttachment.mutate({ id: a.id, employeeId: employee.user_id })
   }
 
   return (

@@ -80,11 +80,10 @@ export function DeliverablePanel({
   const [comment, setComment] = useState('')
   const [error, setError] = useState<string | null>(null)
 
-  const nameOf = (id: string | null) => people.find((p) => p.id === id)?.full_name ?? 'Unassigned'
-  const isOwner = deliverable.owner_id === profile?.id
-  const isReviewer = deliverable.reviewer_id === profile?.id
+  const nameOf = (id: string | null) => people.find((p) => p.user_id === id)?.full_name ?? 'Unassigned'
+  const isOwner = deliverable.owner_id === profile?.user_id
+  const isReviewer = deliverable.reviewer_id === profile?.user_id
   const canEdit = isOwner || isReviewer || isLeadership
-  const needsComment = pending === 'revisions_requested'
 
   async function go(stage: DeliverableStage) {
     setError(null)
@@ -158,7 +157,7 @@ export function DeliverablePanel({
         await addAttachment.mutateAsync({
           org_id: deliverable.org_id,
           deliverable_id: deliverable.id,
-          added_by: profile.id,
+          added_by: profile.user_id,
           kind: 'file',
           file_path: path,
           url: null,
@@ -179,7 +178,7 @@ export function DeliverablePanel({
     await addAttachment.mutateAsync({
       org_id: deliverable.org_id,
       deliverable_id: deliverable.id,
-      added_by: profile.id,
+      added_by: profile.user_id,
       kind: 'link',
       file_path: null,
       url: linkInput.trim(),
@@ -222,7 +221,7 @@ export function DeliverablePanel({
     await addComment.mutateAsync({
       org_id: deliverable.org_id,
       deliverable_id: deliverable.id,
-      author_id: profile.id,
+      author_id: profile.user_id,
       body: commentDraft.trim(),
     })
     setCommentDraft('')
@@ -344,7 +343,7 @@ export function DeliverablePanel({
                         <Download size={12} className="shrink-0" />
                       )}
                     </button>
-                    {(canEdit || a.added_by === profile?.id) && (
+                    {(canEdit || a.added_by === profile?.user_id) && (
                       <button
                         className="shrink-0 text-ink-400 hover:text-rose-600"
                         onClick={() => void removeAttachment(a)}
@@ -407,34 +406,63 @@ export function DeliverablePanel({
           <div className="mt-4 rounded-xl border border-cream-300 p-4">
             <p className="mb-3 text-sm font-semibold text-ink-900">Move this forward</p>
 
-            {(needsComment || pending) && (
-              <textarea
-                className="input mb-3 min-h-[80px]"
-                placeholder="What needs to change? (required)"
-                value={comment}
-                onChange={(e) => setComment(e.target.value)}
-                autoFocus
-              />
-            )}
-
-            <div className="flex flex-wrap gap-2">
-              {NEXT_STAGES[deliverable.stage].map((stage) => {
-                // Nobody signs off on their own work — the database enforces
-                // this too, this just avoids offering a button that will fail.
-                const selfApproval = isOwner && (stage === 'client_review' || stage === 'approved')
-                return (
+            {pending ? (
+              // Confirming a request-changes/reopen decision: only the
+              // comment box and Send/Cancel are on screen. Previously the
+              // full button row (including "Approve & send to client")
+              // stayed visible here too — clicking the wrong one while a
+              // change-request comment was still sitting in the box would
+              // silently approve the deliverable instead, carrying that
+              // comment along with it. Hiding the other buttons during this
+              // step makes that impossible.
+              <>
+                <textarea
+                  className="input mb-3 min-h-[80px]"
+                  placeholder="What needs to change? (required)"
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                  autoFocus
+                />
+                <div className="flex flex-wrap gap-2">
                   <button
-                    key={stage}
-                    disabled={selfApproval || transition.isPending}
-                    title={selfApproval ? 'You cannot approve a deliverable you own' : undefined}
-                    className={stage === 'revisions_requested' ? 'btn-danger' : 'btn-primary'}
-                    onClick={() => void go(stage)}
+                    className="btn-danger"
+                    disabled={!comment.trim() || transition.isPending}
+                    onClick={() => void go(pending)}
                   >
-                    {actionIcon(stage)} {ACTION_LABEL[stage]}
+                    {actionIcon(pending)} {ACTION_LABEL[pending]}
                   </button>
-                )
-              })}
-            </div>
+                  <button
+                    className="btn-ghost"
+                    onClick={() => {
+                      setPending(null)
+                      setComment('')
+                      setError(null)
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {NEXT_STAGES[deliverable.stage].map((stage) => {
+                  // Nobody signs off on their own work — the database enforces
+                  // this too, this just avoids offering a button that will fail.
+                  const selfApproval = isOwner && (stage === 'client_review' || stage === 'approved')
+                  return (
+                    <button
+                      key={stage}
+                      disabled={selfApproval || transition.isPending}
+                      title={selfApproval ? 'You cannot approve a deliverable you own' : undefined}
+                      className={stage === 'revisions_requested' ? 'btn-danger' : 'btn-primary'}
+                      onClick={() => void go(stage)}
+                    >
+                      {actionIcon(stage)} {ACTION_LABEL[stage]}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
 
             {isOwner && NEXT_STAGES[deliverable.stage].some((s) => s === 'client_review' || s === 'approved') && (
               <p className="mt-2 text-xs text-ink-500">
@@ -503,7 +531,7 @@ export function DeliverablePanel({
                         <p className="text-xs font-semibold text-ink-900">{nameOf(c.author_id)}</p>
                         <div className="flex items-center gap-2 shrink-0">
                           <span className="text-[11px] text-ink-400">{relativeTime(c.created_at)}</span>
-                          {(c.author_id === profile?.id || isLeadership) && (
+                          {(c.author_id === profile?.user_id || isLeadership) && (
                             <button
                               className="text-ink-400 hover:text-rose-600"
                               onClick={() =>

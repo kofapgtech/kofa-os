@@ -26,7 +26,7 @@ export function DeliverableCard({
   attachmentCount?: number
   onClick: () => void
 }) {
-  const nameOf = (id: string | null) => people.find((p) => p.id === id)?.full_name
+  const nameOf = (id: string | null) => people.find((p) => p.user_id === id)?.full_name
   const overdue = !!d.due_date && d.stage !== 'approved' && new Date(d.due_date) < new Date()
 
   return (

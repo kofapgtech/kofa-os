@@ -33,7 +33,7 @@ export function GlobalTimer() {
 
   // Default the picker to something the person is actually assigned to.
   const myTaskIds = useMemo(
-    () => new Set(taskAssignees.filter((a) => a.profile_id === profile?.id).map((a) => a.task_id)),
+    () => new Set(taskAssignees.filter((a) => a.profile_id === profile?.user_id).map((a) => a.task_id)),
     [taskAssignees, profile],
   )
   const myTasks = useMemo(

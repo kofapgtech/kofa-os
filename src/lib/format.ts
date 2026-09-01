@@ -1,15 +1,55 @@
-import type { AccountStatus, DeliverableStage, EmploymentType, ProjectStatus, TaskPriority, TaskStatus, UserRole } from './types'
+import type {
+  AccountStatus,
+  DeliverableStage,
+  EmploymentType,
+  ProjectStatus,
+  TaskPriority,
+  TaskStatus,
+  TimesheetWeekStatus,
+  UserRole,
+} from './types'
 
-const currency = new Intl.NumberFormat('en-US', {
-  style: 'currency',
-  currency: 'USD',
-  maximumFractionDigits: 0,
-})
+// Currency is a workspace setting, not a constant. A module-level formatter
+// keeps all ~60 money() call sites untouched — the alternative was threading a
+// currency prop through every component that shows a figure. It is a singleton,
+// which is correct here because exactly one workspace is active per session;
+// AppShell re-applies it whenever the active workspace changes.
+let currencyCode = 'USD'
+let currencyFmt = buildCurrencyFormat(currencyCode)
+
+function buildCurrencyFormat(code: string) {
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: code,
+      maximumFractionDigits: 0,
+    })
+  } catch {
+    // An unknown ISO code would otherwise throw on every render.
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      maximumFractionDigits: 0,
+    })
+  }
+}
+
+/** Point every money() call at the active workspace's currency. Idempotent. */
+export function setWorkspaceCurrency(code: string | null | undefined) {
+  const next = (code ?? 'USD').toUpperCase()
+  if (next === currencyCode) return
+  currencyCode = next
+  currencyFmt = buildCurrencyFormat(next)
+}
+
+export function workspaceCurrency(): string {
+  return currencyCode
+}
 
 /** Money is null for staff by design — show a lock, not a zero. */
 export function money(value: number | null | undefined): string {
   if (value === null || value === undefined) return '—'
-  return currency.format(value)
+  return currencyFmt.format(value)
 }
 
 export function hours(value: number | null | undefined): string {
@@ -159,6 +199,50 @@ export const STAGE_CLASS: Record<DeliverableStage, string> = {
   client_review: 'bg-accent-100 text-accent-700',
   approved: 'bg-brand-100 text-brand-700',
   revisions_requested: 'bg-rose-100 text-rose-700',
+}
+
+export const TIMESHEET_STATUS_LABEL: Record<TimesheetWeekStatus, string> = {
+  draft: 'Open',
+  pending_lead: 'With workstream lead',
+  pending_md: 'With managing director',
+  approved: 'Approved',
+  rejected: 'Sent back',
+}
+
+/** The short form for a chip in a crowded table row. */
+export const TIMESHEET_STATUS_SHORT: Record<TimesheetWeekStatus, string> = {
+  draft: 'Open',
+  pending_lead: 'Lead review',
+  pending_md: 'MD review',
+  approved: 'Approved',
+  rejected: 'Sent back',
+}
+
+export const TIMESHEET_STATUS_CLASS: Record<TimesheetWeekStatus, string> = {
+  draft: 'bg-cream-200 text-ink-600',
+  pending_lead: 'bg-accent-100 text-accent-700',
+  pending_md: 'bg-sky-100 text-sky-800',
+  approved: 'bg-brand-100 text-brand-700',
+  rejected: 'bg-rose-100 text-rose-700',
+}
+
+/** The Monday that starts the week a date falls in, as a YYYY-MM-DD string.
+ *  UTC, to match timesheet_weeks.week_start on the server — a local-time
+ *  version would disagree by a day for anyone west of Greenwich. */
+export function weekStartOf(value: string | Date): string {
+  const d = new Date(value)
+  const utc = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+  utc.setUTCDate(utc.getUTCDate() - ((utc.getUTCDay() + 6) % 7))
+  return utc.toISOString().slice(0, 10)
+}
+
+/** "Aug 24 – Aug 30" for a week_start. */
+export function weekRange(weekStart: string): string {
+  const start = new Date(`${weekStart}T00:00:00Z`)
+  const end = new Date(start.getTime() + 6 * 86_400_000)
+  const fmt = (d: Date) =>
+    d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+  return `${fmt(start)} – ${fmt(end)}`
 }
 
 /** Budget health drives colour everywhere it appears. */

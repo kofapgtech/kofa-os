@@ -29,10 +29,10 @@ export function ProfilePage() {
     d.setHours(0, 0, 0, 0)
     return d.toISOString()
   }, [])
-  const { data: myWeek = [] } = useTimeEntries({ userId: profile?.id, since: weekStart })
+  const { data: myWeek = [] } = useTimeEntries({ userId: profile?.user_id, since: weekStart })
 
   const myTaskIds = useMemo(
-    () => new Set(taskAssignees.filter((a) => a.profile_id === profile?.id).map((a) => a.task_id)),
+    () => new Set(taskAssignees.filter((a) => a.profile_id === profile?.user_id).map((a) => a.task_id)),
     [taskAssignees, profile],
   )
   const myTasks = useMemo(() => tasks.filter((t) => myTaskIds.has(t.id)), [tasks, myTaskIds])
@@ -56,7 +56,7 @@ export function ProfilePage() {
   async function saveBasics() {
     if (!profile || !fullName.trim()) return
     await update.mutateAsync({
-      id: profile.id,
+      id: profile.user_id,
       patch: { full_name: fullName.trim(), title: title.trim() || null },
     })
     setEditingBasics(false)
@@ -76,7 +76,7 @@ export function ProfilePage() {
     try {
       // Fixed path (no extension) + upsert so re-uploading a photo overwrites
       // the same object instead of accumulating orphaned files.
-      const path = `${profile.id}/avatar`
+      const path = `${profile.user_id}/avatar`
       const { error: uploadError } = await supabase.storage
         .from('avatars')
         .upload(path, file, { upsert: true, contentType: file.type })
@@ -84,7 +84,7 @@ export function ProfilePage() {
 
       const { data } = supabase.storage.from('avatars').getPublicUrl(path)
       const url = `${data.publicUrl}?v=${Date.now()}` // cache-bust everywhere the avatar renders
-      await update.mutateAsync({ id: profile.id, patch: { avatar_url: url } })
+      await update.mutateAsync({ id: profile.user_id, patch: { avatar_url: url } })
       await refreshProfile()
     } catch (err) {
       setAvatarError(err instanceof Error ? err.message : 'Upload failed.')

@@ -9,17 +9,30 @@ import {
   ListChecks,
   LogOut,
   Menu,
+  Plus,
+  Settings,
   ShieldCheck,
   Wallet,
   X,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
+import {
+  useCreateWorkspace,
+  useIsPlatformAdmin,
+  useMyWorkspaces,
+  useSetActiveWorkspace,
+  useTimesheetWeeksRealtime,
+  useWorkspace,
+} from '@/lib/queries'
+import { Modal, ModalHeader } from './ui'
+import type { PayPeriodCadence } from '@/lib/types'
+import { setWorkspaceCurrency } from '@/lib/format'
 import { GlobalTimer } from './GlobalTimer'
 import { Logo } from './Logo'
 import { NotificationBell } from './NotificationBell'
 import { Avatar } from './ui'
 
-type NavGate = 'leadership' | 'payroll' | 'admin' | 'admin-full' | null
+type NavGate = 'leadership' | 'payroll' | 'admin' | 'admin-full' | 'timesheet-approvals' | null
 
 interface NavItem {
   to: string
@@ -27,7 +40,7 @@ interface NavItem {
   icon: typeof ListChecks
   end?: boolean
   gate?: NavGate
-  children?: { to: string; label: string; gate?: NavGate }[]
+  children?: { to: string; label: string; gate?: NavGate; end?: boolean }[]
 }
 
 const NAV: NavItem[] = [
@@ -35,7 +48,15 @@ const NAV: NavItem[] = [
   { to: '/command', label: 'Command centre', icon: Gauge, gate: 'leadership' },
   { to: '/projects', label: 'Projects', icon: Wallet },
   { to: '/deliverables', label: 'Deliverables', icon: FileCheck2 },
-  { to: '/timesheet', label: 'Timesheet', icon: CalendarClock },
+  {
+    to: '/timesheet',
+    label: 'Timesheet',
+    icon: CalendarClock,
+    children: [
+      { to: '/timesheet', label: 'My timesheet', end: true },
+      { to: '/timesheet/approvals', label: 'Approvals', gate: 'timesheet-approvals' },
+    ],
+  },
   { to: '/accounts', label: 'Accounts', icon: Building2 },
   {
     to: '/payroll',
@@ -59,11 +80,239 @@ const NAV: NavItem[] = [
   },
 ]
 
+/** The workspace menu in the header. Holds switching, settings and creation —
+ *  which is why it is worth showing even to someone with a single workspace,
+ *  as long as they can act on it.
+ *
+ *  Hidden entirely for a single-workspace member who is neither an owner nor
+ *  platform staff: every item inside would be gated off, so the control would
+ *  be a dead end. Note the list itself never leaks — my_workspaces() returns
+ *  only workspaces you hold an active membership in.
+ *
+ *  Switching does a full page load rather than just clearing the query cache:
+ *  every context in the tree (auth profile, notifications feed, running timer)
+ *  is workspace-scoped, and a reload is the one thing guaranteed to rebuild
+ *  all of them consistently. */
+function WorkspaceMenu() {
+  const { isOwner } = useAuth()
+  const navigate = useNavigate()
+  const { data: workspaces = [] } = useMyWorkspaces()
+  const { data: isPlatformAdmin = false } = useIsPlatformAdmin()
+  const switchTo = useSetActiveWorkspace()
+  const [open, setOpen] = useState(false)
+  const [creating, setCreating] = useState(false)
+
+  const canCreate = isOwner || isPlatformAdmin
+  // Platform staff act with owner-equivalent authority in every workspace
+  // (see platform_admin_acts_as_owner migration) — the menu item follows.
+  const canManageSettings = isOwner || isPlatformAdmin
+  const hasSomethingToDo = workspaces.length > 1 || canManageSettings || canCreate
+  if (!hasSomethingToDo) return null
+
+  const current = workspaces.find((w) => w.is_current)
+
+  return (
+    <>
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/10 px-2.5 py-1 text-sm text-cream-50 hover:bg-white/20"
+        >
+          {current?.name ?? 'Workspace'}
+          <span className="text-[10px] opacity-70">▼</span>
+        </button>
+
+        {open && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+            <div className="absolute left-0 z-50 mt-1.5 w-64 rounded-xl border border-cream-300 bg-white p-1.5 shadow-lg">
+              {workspaces.length > 1 && (
+                <>
+                  <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-ink-400">
+                    Your workspaces
+                  </p>
+                  {workspaces.map((w) => (
+                    <button
+                      key={w.org_id}
+                      type="button"
+                      disabled={switchTo.isPending}
+                      onClick={() => {
+                        if (w.is_current) return setOpen(false)
+                        switchTo.mutate(w.org_id, { onSuccess: () => window.location.assign('/') })
+                      }}
+                      className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-ink-800 hover:bg-cream-200 disabled:opacity-50"
+                    >
+                      <span className="min-w-0 flex-1 truncate">
+                        {w.name}
+                        <span className="block text-xs text-ink-500">{w.role.replace('_', ' ')}</span>
+                      </span>
+                      {w.is_current && <span className="text-brand-600">✓</span>}
+                    </button>
+                  ))}
+                  <div className="my-1.5 border-t border-cream-300" />
+                </>
+              )}
+
+              {canManageSettings && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false)
+                    navigate('/settings')
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-ink-800 hover:bg-cream-200"
+                >
+                  <Settings size={15} className="text-ink-500" /> Workspace settings
+                </button>
+              )}
+
+              {canCreate && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false)
+                    setCreating(true)
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-ink-800 hover:bg-cream-200"
+                >
+                  <Plus size={15} className="text-ink-500" /> Create new workspace
+                </button>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+
+      {creating && <CreateWorkspaceModal onClose={() => setCreating(false)} />}
+    </>
+  )
+}
+
+const CADENCES: { value: PayPeriodCadence; label: string }[] = [
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'biweekly', label: 'Every two weeks' },
+  { value: 'semi_monthly', label: 'Twice a month' },
+  { value: 'monthly', label: 'Monthly' },
+]
+
+/** Creating a workspace makes you its owner and switches you into it, so this
+ *  reloads on success rather than trying to reconcile the caches in place. */
+function CreateWorkspaceModal({ onClose }: { onClose: () => void }) {
+  const create = useCreateWorkspace()
+  const [name, setName] = useState('')
+  const [slug, setSlug] = useState('')
+  const [slugEdited, setSlugEdited] = useState(false)
+  const [currency, setCurrency] = useState('USD')
+  const [timezone, setTimezone] = useState('America/New_York')
+  const [cadence, setCadence] = useState<PayPeriodCadence>('semi_monthly')
+
+  function onName(v: string) {
+    setName(v)
+    if (!slugEdited) {
+      setSlug(v.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''))
+    }
+  }
+
+  return (
+    <Modal onClose={onClose}>
+      <ModalHeader
+        title="Create a workspace"
+        icon={<Plus size={16} className="text-brand-600" />}
+        onClose={onClose}
+      />
+      <div className="space-y-3">
+        <div>
+          <label className="label">Name</label>
+          <input
+            className="input"
+            value={name}
+            placeholder="Rue Marketing"
+            onChange={(e) => onName(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="label">Address</label>
+          <input
+            className="input font-mono text-sm"
+            value={slug}
+            onChange={(e) => {
+              setSlugEdited(true)
+              setSlug(e.target.value)
+            }}
+          />
+          <p className="mt-1 text-xs text-ink-500">Must be unique. Can't be changed later.</p>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label">Currency</label>
+            <select className="input" value={currency} onChange={(e) => setCurrency(e.target.value)}>
+              {['USD', 'GBP', 'EUR', 'CAD', 'AUD', 'NGN', 'ZAR'].map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Time zone</label>
+            <input className="input" value={timezone} onChange={(e) => setTimezone(e.target.value)} />
+          </div>
+        </div>
+        <div>
+          <label className="label">Pay period cadence</label>
+          <select
+            className="input"
+            value={cadence}
+            onChange={(e) => setCadence(e.target.value as PayPeriodCadence)}
+          >
+            {CADENCES.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <p className="rounded-lg bg-cream-200 px-3 py-2 text-xs text-ink-600">
+          Sets up six workstreams, an internal account for its own work, and a pay period
+          calendar. You become its owner and land inside it — use the workspace menu to come back.
+        </p>
+
+        <button
+          className="btn-primary w-full"
+          disabled={!name.trim() || !slug.trim() || create.isPending}
+          onClick={() =>
+            create.mutate(
+              { name: name.trim(), slug: slug.trim(), currency, timezone, cadence },
+              { onSuccess: () => window.location.assign('/') },
+            )
+          }
+        >
+          <Plus size={16} /> Create workspace
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
 export function AppShell() {
   const { profile, signOut, isLeadership, isAdmin, isAdminOrExecutive, isExecutive, isHR, isPayrollAdmin } =
     useAuth()
   const navigate = useNavigate()
   const [mobileNav, setMobileNav] = useState(false)
+
+  // Currency is a workspace setting. Applied here, in render, rather than in an
+  // effect: money() is called while children render, and an effect would show
+  // one frame of the wrong symbol on every load. setWorkspaceCurrency is a
+  // no-op when nothing changed.
+  const { data: workspace } = useWorkspace()
+  setWorkspaceCurrency(workspace?.currency)
+
+  // One realtime subscription for the whole authenticated shell, so a
+  // timesheet approval on one screen updates every other open screen
+  // (Timesheet, Approvals, Payroll) without a reload.
+  useTimesheetWeeksRealtime()
 
   // "Admin" covers three audiences now: full admin/executive access, or
   // HR's narrower roster-only slice of the same section (see
@@ -75,6 +324,9 @@ export function AppShell() {
     if (gate === 'payroll') return isPayrollAdmin
     if (gate === 'admin') return canReachAdmin
     if (gate === 'admin-full') return isAdminOrExecutive
+    // Leads confirm their workstream's hours, the MD clears them, finance
+    // needs to see where a week has got to before it can pay it.
+    if (gate === 'timesheet-approvals') return isLeadership || isPayrollAdmin
     return true
   }
 
@@ -97,6 +349,7 @@ export function AppShell() {
                 <NavLink
                   key={child.to}
                   to={child.to}
+                  end={child.end}
                   onClick={() => setMobileNav(false)}
                   className={({ isActive }) =>
                     `block rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
@@ -139,6 +392,7 @@ export function AppShell() {
           </button>
 
           <Logo height={30} />
+          <WorkspaceMenu />
 
           <div className="ml-auto flex items-center gap-2">
             <GlobalTimer />

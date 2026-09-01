@@ -75,7 +75,7 @@ export function PayrollRecords() {
           <select className="input max-w-sm" value={profileId} onChange={(e) => setProfileId(e.target.value)}>
             <option value="">All</option>
             {profiles.map((p) => (
-              <option key={p.id} value={p.id}>
+              <option key={p.user_id} value={p.user_id}>
                 {p.full_name}
               </option>
             ))}

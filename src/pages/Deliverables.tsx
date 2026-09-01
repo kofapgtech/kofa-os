@@ -29,8 +29,8 @@ export function Deliverables() {
     () =>
       deliverables.filter(
         (d) =>
-          (d.reviewer_id === profile?.id && d.stage === 'internal_review') ||
-          (d.owner_id === profile?.id && d.stage === 'revisions_requested'),
+          (d.reviewer_id === profile?.user_id && d.stage === 'internal_review') ||
+          (d.owner_id === profile?.user_id && d.stage === 'revisions_requested'),
       ),
     [deliverables, profile],
   )
@@ -49,7 +49,7 @@ export function Deliverables() {
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase()
     return deliverables.filter((d) => {
-      if (onlyMine && d.owner_id !== profile?.id && d.reviewer_id !== profile?.id) return false
+      if (onlyMine && d.owner_id !== profile?.user_id && d.reviewer_id !== profile?.user_id) return false
       if (projectFilter && d.project_id !== projectFilter) return false
       if (q && !d.title.toLowerCase().includes(q) && !projectName(d.project_id).toLowerCase().includes(q))
         return false

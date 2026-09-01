@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
-import { groupPayrollEntries, useActivePayPeriods, useEnsurePayPeriods, usePayrollEntries, usePayrollPaymentsForPeriod } from '@/lib/queries'
+import {
+  groupPayrollEntries,
+  useActivePayPeriods,
+  useEnsurePayPeriods,
+  useEnsureTimesheetWeeks,
+  usePayrollApprovalBlockers,
+  usePayrollEntries,
+  usePayrollPaymentsForPeriod,
+} from '@/lib/queries'
 import { EmptyState, PageHeader, SortableTh, Spinner, sortRows, useTableSort } from '@/components/ui'
 import { PayrollInvoiceModal } from '@/components/PayrollInvoiceModal'
 import { hours, longDate, money } from '@/lib/format'
@@ -28,6 +36,13 @@ export function PayrollPayment() {
   const { data: entries = [], isLoading: entriesLoading } = usePayrollEntries(period?.period_start, period?.period_end)
   const { data: payments = [] } = usePayrollPaymentsForPeriod(periodId || undefined)
   const paidByProfile = useMemo(() => new Map(payments.map((p) => [p.profile_id, p])), [payments])
+
+  // Contractors' hours have to clear the workstream lead and then the managing
+  // director before finance may pay them. This is the same rule the database
+  // enforces in record_payroll_payment() — surfaced here so the Pay action
+  // explains itself instead of failing.
+  useEnsureTimesheetWeeks()
+  const { blockers } = usePayrollApprovalBlockers(period?.period_start, period?.period_end)
 
   const byEmployee = useMemo(() => groupPayrollEntries(entries, 'profile'), [entries])
   const byProject = useMemo(() => groupPayrollEntries(entries, 'project'), [entries])
@@ -107,6 +122,11 @@ export function PayrollPayment() {
                             <td className="td">
                               {row.name}
                               {paidByProfile.has(row.id) && <span className="chip ml-2 bg-cream-200 text-ink-600">Paid</span>}
+                              {!paidByProfile.has(row.id) && blockers.has(row.id) && (
+                                <span className="chip ml-2 bg-amber-100 text-amber-800">
+                                  Awaiting approval
+                                </span>
+                              )}
                             </td>
                             <td className="td text-right tabular-nums">{hours(row.hours)}</td>
                             <td className="td text-right tabular-nums">{money(row.amount)}</td>
@@ -160,6 +180,7 @@ export function PayrollPayment() {
           name={byEmployee.find((e) => e.id === openEmployeeId)?.name ?? ''}
           entries={entries.filter((e) => e.profile_id === openEmployeeId)}
           existingPayment={paidByProfile.get(openEmployeeId) ?? null}
+          blockedWeeks={blockers.get(openEmployeeId) ?? []}
           onClose={() => setOpenEmployeeId(null)}
         />
       )}

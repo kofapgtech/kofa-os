@@ -77,7 +77,7 @@ export function TaskViews({ tasks, people, hoursByTask, projectId, projectNames,
   const { data: taskAssignees = [] } = useTaskAssignees()
 
   const nameById = useMemo(
-    () => Object.fromEntries(people.map((p) => [p.id, p.full_name])),
+    () => Object.fromEntries(people.map((p) => [p.user_id, p.full_name])),
     [people],
   )
 
@@ -139,7 +139,7 @@ export function TaskViews({ tasks, people, hoursByTask, projectId, projectNames,
         <select className="input !w-auto" value={assignee} onChange={(e) => setAssignee(e.target.value)}>
           <option value="all">Everyone</option>
           {people.map((p) => (
-            <option key={p.id} value={p.id}>
+            <option key={p.user_id} value={p.user_id}>
               {p.full_name}
             </option>
           ))}
@@ -253,14 +253,28 @@ function AssigneeCell({ ids, nameById }: { ids: string[]; nameById: Record<strin
  *  that assignment happens only via workstream + hour allocations (no more
  *  standalone "assign directly" tasks) -- it also notifies the workstream's
  *  lead(s), and is what a task's hour allocations draw budget from. */
-function DepartmentSelect({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+function DepartmentSelect({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: string
+  onChange: (id: string) => void
+  disabled?: boolean
+}) {
   const { data: departments = [] } = useDepartments()
   return (
     <div>
       <label className="label flex items-center gap-1.5">
         <Building2 size={13} /> Workstream
       </label>
-      <select className="input" value={value} onChange={(e) => onChange(e.target.value)} required>
+      <select
+        className="input"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        required
+        disabled={disabled}
+      >
         <option value="" disabled>
           Select a workstream…
         </option>
@@ -517,10 +531,14 @@ function WorkstreamTable({
                           </tr>
                           {!projCollapsed &&
                             sorted.map((t) => {
-                              const overdue = t.due_date && t.status !== 'done' && new Date(t.due_date) < new Date()
-                              const urgent = t.priority === 'urgent'
+                              const done = t.status === 'done'
+                              const overdue = t.due_date && !done && new Date(t.due_date) < new Date()
+                              const urgent = t.priority === 'urgent' && !done
                               return (
-                                <tr key={t.id} className={`hover:bg-cream-100 ${urgent ? 'bg-rose-50/40' : ''}`}>
+                                <tr
+                                  key={t.id}
+                                  className={`hover:bg-cream-100 ${urgent ? 'bg-rose-50/40' : ''} ${done ? 'opacity-60' : ''}`}
+                                >
                                   <td className={`td pl-14 ${urgent ? 'border-l-4 border-l-rose-500' : ''}`}>
                                     <button className="text-left" onClick={() => onOpen(t)}>
                                       <span className="flex items-center gap-1.5 font-medium text-ink-900 hover:text-brand-700">
@@ -663,10 +681,14 @@ function ListView({
           </thead>
           <tbody className="divide-y divide-cream-200">
             {sorted.map((t) => {
-              const overdue = t.due_date && t.status !== 'done' && new Date(t.due_date) < new Date()
-              const urgent = t.priority === 'urgent'
+              const done = t.status === 'done'
+              const overdue = t.due_date && !done && new Date(t.due_date) < new Date()
+              const urgent = t.priority === 'urgent' && !done
               return (
-                <tr key={t.id} className={`hover:bg-cream-100 ${urgent ? 'bg-rose-50/40' : ''}`}>
+                <tr
+                  key={t.id}
+                  className={`hover:bg-cream-100 ${urgent ? 'bg-rose-50/40' : ''} ${done ? 'opacity-60' : ''}`}
+                >
                   <td className={`td ${urgent ? 'border-l-4 border-l-rose-500' : ''}`}>
                     <button className="text-left" onClick={() => onOpen(t)}>
                       <span className="flex items-center gap-1.5 font-medium text-ink-900 hover:text-brand-700">
@@ -752,7 +774,8 @@ function BoardView({
             </div>
             <div className="space-y-2">
               {column.map((t) => {
-                const urgent = t.priority === 'urgent'
+                const done = t.status === 'done'
+                const urgent = t.priority === 'urgent' && !done
                 return (
                   <div
                     key={t.id}
@@ -761,7 +784,7 @@ function BoardView({
                     onClick={() => onOpen(t)}
                     className={`cursor-grab rounded-xl border bg-white p-3 shadow-sm active:cursor-grabbing ${
                       urgent ? 'border-rose-200 border-l-4 border-l-rose-500 bg-rose-50/40' : 'border-cream-300'
-                    }`}
+                    } ${done ? 'opacity-60' : ''}`}
                   >
                     <p className="flex items-center gap-1.5 text-sm font-medium text-ink-900">
                       {urgent && <Flame size={13} className="shrink-0 text-rose-600" />}
@@ -908,6 +931,7 @@ function TaskPanel({
   const { start, running } = useTimer()
   const [draft, setDraft] = useState(task)
   const [addingSubtask, setAddingSubtask] = useState(false)
+  const done = draft.status === 'done'
 
   const subtasks = useMemo(
     () => allTasks.filter((t) => t.parent_task_id === task.id),
@@ -921,7 +945,12 @@ function TaskPanel({
 
   return (
     <Drawer title="Task" onClose={onClose}>
-      {draft.priority === 'urgent' && (
+      {done && (
+        <div className="mb-3 flex items-center gap-1.5 rounded-lg bg-cream-200 px-2.5 py-1.5 text-xs font-semibold text-ink-600">
+          <Check size={13} /> Done — change the status to make further edits.
+        </div>
+      )}
+      {!done && draft.priority === 'urgent' && (
         <div className="mb-3 flex items-center gap-1.5 rounded-lg bg-rose-50 px-2.5 py-1.5 text-xs font-semibold text-rose-700">
           <Flame size={13} /> Urgent — needs attention
         </div>
@@ -929,6 +958,7 @@ function TaskPanel({
       <input
         className="input mb-4 !text-base !font-semibold"
         value={draft.title}
+        disabled={done}
         onChange={(e) => setDraft({ ...draft, title: e.target.value })}
         onBlur={() => draft.title !== task.title && patch({ title: draft.title })}
       />
@@ -953,6 +983,7 @@ function TaskPanel({
           <select
             className={`input font-medium ${PRIORITY_CLASS[draft.priority]}`}
             value={draft.priority}
+            disabled={done}
             onChange={(e) => patch({ priority: e.target.value as Task['priority'] })}
           >
             {(['low', 'medium', 'high', 'urgent'] as const).map((p) => (
@@ -968,6 +999,7 @@ function TaskPanel({
             className="input"
             type="date"
             value={draft.due_date ?? ''}
+            disabled={done}
             onChange={(e) => patch({ due_date: e.target.value || null })}
           />
         </div>
@@ -977,6 +1009,7 @@ function TaskPanel({
         <DepartmentSelect
           value={draft.department_id ?? ''}
           onChange={(id) => patch({ department_id: id || null })}
+          disabled={done}
         />
       </div>
 
@@ -988,20 +1021,21 @@ function TaskPanel({
           <div className="flex flex-wrap gap-1.5">
             {assigneeIds.map((id) => (
               <span key={id} className="chip bg-cream-200 text-ink-700">
-                {people.find((p) => p.id === id)?.full_name ?? 'Unknown'}
+                {people.find((p) => p.user_id === id)?.full_name ?? 'Unknown'}
               </span>
             ))}
           </div>
         )}
       </div>
 
-      <HourAllocationsSection task={draft} people={people} />
+      <HourAllocationsSection task={draft} people={people} locked={done} />
 
       <div className="mt-4">
         <label className="label">Description</label>
         <textarea
           className="input min-h-[100px]"
           value={draft.description ?? ''}
+          disabled={done}
           onChange={(e) => setDraft({ ...draft, description: e.target.value })}
           onBlur={() => patch({ description: draft.description })}
           placeholder="Context, links, acceptance criteria…"
@@ -1020,7 +1054,7 @@ function TaskPanel({
         </div>
         <button
           className="btn-primary mt-3 w-full"
-          disabled={!!running}
+          disabled={!!running || done}
           onClick={() => void start(task.project_id, task.id, task.title)}
         >
           <Play size={15} /> {running ? 'A timer is already running' : 'Start timer on this task'}
@@ -1030,9 +1064,11 @@ function TaskPanel({
       <div className="mt-4 rounded-xl border border-cream-300 p-3">
         <div className="mb-2 flex items-center justify-between">
           <span className="text-sm font-semibold text-ink-900">Subtasks</span>
-          <button className="btn-ghost !min-h-0 !py-1 !px-2 text-xs" onClick={() => setAddingSubtask(true)}>
-            <ListPlus size={13} /> Add subtask
-          </button>
+          {!done && (
+            <button className="btn-ghost !min-h-0 !py-1 !px-2 text-xs" onClick={() => setAddingSubtask(true)}>
+              <ListPlus size={13} /> Add subtask
+            </button>
+          )}
         </div>
         {subtasks.length === 0 ? (
           <p className="text-sm text-ink-500">None yet.</p>
@@ -1054,7 +1090,7 @@ function TaskPanel({
         )}
       </div>
 
-      <TimeRequestSection task={task} />
+      <TimeRequestSection task={task} locked={done} />
 
       {addingSubtask && (
         <NewTaskPanel
@@ -1088,23 +1124,36 @@ function currentMonthStart(): string {
 }
 
 /** Per-assignee hour commitments on this task, scoped to a budget month.
- *  Each row's hours × the contractor's bill_rate draws down the task's
- *  workstream's budget for that month (v_workstream_budget.committed_amount).
- *  Going over the remaining budget doesn't block the commit — it warns and
+ *  Each row's hours × the contractor's cost_rate (what they're actually paid,
+ *  never the client bill rate) draws down the task's workstream's budget for
+ *  that month (v_workstream_budget.committed_amount). Going over the
+ *  remaining budget doesn't block the commit — it warns and
  *  offers to submit a request for more room to the executive, same as
  *  TimeRequestSection does for task-level hour overruns. A task that isn't
  *  finished within its month can have its leftover hours carried into the
- *  next one instead of losing them. */
+ *  next one instead of losing them.
+ *
+ *  On an UNTRACKED project (internal account, no budget) there is no
+ *  workstream budget to draw against, so the overrun check is skipped
+ *  entirely. That matters more than it looks: allocating hours is the only
+ *  way to put someone on a task, so without this bypass nobody could be
+ *  assigned to internal work at all. The bypass keys off the project having
+ *  no budget — NOT off a missing workstream_budgets row, which is the normal
+ *  "this client month hasn't been allocated yet" case and must still divert
+ *  into a request. */
 function HourAllocationsSection({
   task,
   people,
+  locked,
 }: {
   task: Task
   people: Profile[]
+  locked?: boolean
 }) {
-  const { profile, isLeadership } = useAuth()
+  const { profile, isLeadership, hasFinancialAccess } = useAuth()
   const { data: allocations = [] } = useTaskHourAllocations(task.id)
   const { data: rates = [] } = useProfileRates()
+  const { data: projectBudgets = [] } = useProjectBudgets()
   const setAllocation = useSetTaskHourAllocation()
   const deleteAllocation = useDeleteTaskHourAllocation()
   const requestBudget = useRequestWorkstreamBudget()
@@ -1112,6 +1161,13 @@ function HourAllocationsSection({
   const [month, setMonth] = useState(currentMonthStart)
   const { data: workstreamBudgets = [] } = useWorkstreamBudgets(task.project_id, month)
   const wb = workstreamBudgets.find((w) => w.department_id === task.department_id)
+
+  // budget_amount lives on `projects`, not on the money-gated cost tables, so
+  // this is null for an untracked project for everyone — staff included.
+  // Undefined while the query is in flight, which correctly leaves the budget
+  // check switched ON until we know otherwise.
+  const projectRow = projectBudgets.find((b) => b.project_id === task.project_id)
+  const isUntracked = projectRow ? projectRow.budget_amount === null : false
 
   const [draftProfileId, setDraftProfileId] = useState('')
   const [draftHours, setDraftHours] = useState('')
@@ -1123,9 +1179,13 @@ function HourAllocationsSection({
   const [carrying, setCarrying] = useState<TaskHourAllocation | null>(null)
   const [carryAmount, setCarryAmount] = useState('')
 
-  const nameFor = (id: string) => people.find((p) => p.id === id)?.full_name ?? 'Unknown'
-  const rateFor = (id: string) => rates.find((r) => r.profile_id === id)?.bill_rate ?? null
+  const nameFor = (id: string) => people.find((p) => p.user_id === id)?.full_name ?? 'Unknown'
+  const costFor = (id: string) => rates.find((r) => r.profile_id === id)?.cost_rate ?? null
   const monthRows = allocations.filter((a) => a.budget_month === month)
+  const monthHours = monthRows.reduce((sum, a) => sum + Number(a.hours), 0)
+  // What this month's committed hours cost the company, for untracked work
+  // where there is no client bill rate worth showing.
+  const monthCost = monthRows.reduce((sum, a) => sum + Number(a.hours) * (costFor(a.profile_id) ?? 0), 0)
   // Allocating hours to someone is now the only way to put them on this task
   // (see the task_hour_allocations_sync_assignee DB trigger), so the pool to
   // choose from is this workstream's members, not the task's current assignees.
@@ -1150,7 +1210,7 @@ function HourAllocationsSection({
       budget_month: forMonth,
       hours: hoursVal,
       org_id: task.org_id,
-      created_by: profile!.id,
+      created_by: profile!.user_id,
     })
   }
 
@@ -1158,10 +1218,10 @@ function HourAllocationsSection({
     if (!draftProfileId || !draftHours) return
     const hoursVal = Number(draftHours)
     if (hoursVal <= 0) return
-    const rate = rateFor(draftProfileId)
+    const rate = costFor(draftProfileId)
     const cost = rate !== null ? hoursVal * rate : null
     const remaining = wb?.remaining_amount ?? 0
-    if (cost !== null && cost > remaining + 0.005) {
+    if (!isUntracked && cost !== null && cost > remaining + 0.005) {
       setRequestForm({
         amount: (cost - remaining).toFixed(2),
         reason: `${nameFor(draftProfileId)} — ${hoursVal}h on "${task.title}"`,
@@ -1204,9 +1264,13 @@ function HourAllocationsSection({
       </div>
 
       <p className="mt-1 text-xs text-ink-500">
-        {wb
-          ? `${wb.department_name} · ${money(wb.committed_amount)} committed of ${money(wb.allocated_amount)} allocated · ${money(wb.remaining_amount)} remaining`
-          : `No workstream budget allocated for ${monthLabel(month)} yet.`}
+        {isUntracked
+          ? `${monthHours.toFixed(1)}h committed for ${monthLabel(month)}${
+              hasFinancialAccess ? ` · ${money(monthCost)} internal cost` : ''
+            } — no budget to draw against.`
+          : wb
+            ? `${wb.department_name} · ${money(wb.committed_amount)} committed of ${money(wb.allocated_amount)} allocated · ${money(wb.remaining_amount)} remaining`
+            : `No workstream budget allocated for ${monthLabel(month)} yet.`}
       </p>
 
       <div className="mt-2 space-y-1.5">
@@ -1214,7 +1278,7 @@ function HourAllocationsSection({
           <p className="text-sm text-ink-500">No hours committed for {monthLabel(month)} yet.</p>
         ) : (
           monthRows.map((a) => {
-            const rate = rateFor(a.profile_id)
+            const rate = costFor(a.profile_id)
             const cost = rate !== null ? a.hours * rate : null
             return (
               <div
@@ -1222,7 +1286,7 @@ function HourAllocationsSection({
                 className="flex flex-wrap items-center gap-2 rounded-lg border border-cream-300 px-2.5 py-1.5"
               >
                 <span className="min-w-[7rem] flex-1 text-sm font-medium text-ink-900">{nameFor(a.profile_id)}</span>
-                {isLeadership ? (
+                {isLeadership && !locked ? (
                   <input
                     className="input !w-20 text-right"
                     type="number"
@@ -1239,7 +1303,7 @@ function HourAllocationsSection({
                   <span className="tabular-nums text-sm">{hours(a.hours)}</span>
                 )}
                 <span className="text-xs text-ink-500">{cost !== null ? money(cost) : 'no rate on file'}</span>
-                {isLeadership && (
+                {isLeadership && !locked && (
                   <>
                     <button className="btn-ghost !min-h-0 !py-1 !px-2 text-xs" onClick={() => setCarrying(a)}>
                       Carry over
@@ -1297,7 +1361,7 @@ function HourAllocationsSection({
         </div>
       )}
 
-      {isLeadership && (
+      {isLeadership && !locked && (
         <>
           {workstreamMembers.length === 0 ? (
             <p className="mt-2 text-xs text-ink-500">No one in this workstream yet.</p>
@@ -1308,7 +1372,7 @@ function HourAllocationsSection({
                 <select className="input" value={draftProfileId} onChange={(e) => setDraftProfileId(e.target.value)}>
                   <option value="">Choose…</option>
                   {workstreamMembers.map((p) => (
-                    <option key={p.id} value={p.id}>
+                    <option key={p.user_id} value={p.user_id}>
                       {p.full_name}
                     </option>
                   ))}
@@ -1403,7 +1467,7 @@ function HourAllocationsSection({
  *  authority share the same expression by design (see decide_time_extension
  *  and the time_requests_read policy), so "I can see it" already implies
  *  "I'm allowed to act on it" whenever it isn't mine. */
-function TimeRequestSection({ task }: { task: Task }) {
+function TimeRequestSection({ task, locked }: { task: Task; locked?: boolean }) {
   const { profile } = useAuth()
   const { data: requests = [], isLoading } = useTaskTimeRequests(task.id)
   const request = useRequestTimeExtension()
@@ -1421,9 +1485,11 @@ function TimeRequestSection({ task }: { task: Task }) {
         <span className="flex items-center gap-2 text-sm font-semibold text-ink-900">
           <Hourglass size={14} /> Time requests
         </span>
-        <button className="btn-ghost !min-h-0 !py-1 !px-2 text-xs" onClick={() => setOpen((v) => !v)}>
-          Request more time
-        </button>
+        {!locked && (
+          <button className="btn-ghost !min-h-0 !py-1 !px-2 text-xs" onClick={() => setOpen((v) => !v)}>
+            Request more time
+          </button>
+        )}
       </div>
 
       {isLoading ? (
@@ -1441,7 +1507,7 @@ function TimeRequestSection({ task }: { task: Task }) {
                 </p>
                 <span className="shrink-0 text-xs text-ink-400">{relativeTime(r.created_at)}</span>
               </div>
-              {r.requested_by !== profile?.id && (
+              {r.requested_by !== profile?.user_id && (
                 <div className="mt-2 flex gap-2">
                   <button
                     className="btn-primary !min-h-0 !py-1 !px-2.5 text-xs"
@@ -1501,7 +1567,7 @@ function TimeRequestSection({ task }: { task: Task }) {
               await request.mutateAsync({
                 org_id: profile!.org_id,
                 task_id: task.id,
-                requested_by: profile!.id,
+                requested_by: profile!.user_id,
                 requested_hours: Number(reqHours),
                 reason: reason.trim() || null,
               })
@@ -1609,7 +1675,7 @@ function NewTaskPanel({
               due_date: due || null,
               estimated_hours: estimate ? Number(estimate) : null,
               priority,
-              created_by: profile!.id,
+              created_by: profile!.user_id,
               parent_task_id: parentTaskId ?? null,
             })
             onClose()

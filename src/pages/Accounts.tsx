@@ -27,7 +27,11 @@ export function Accounts() {
   const [showClosed, setShowClosed] = useState(false)
 
   const closedCount = allAccounts.filter((a) => a.status === 'closed').length
-  const accounts = showClosed ? allAccounts : allAccounts.filter((a) => a.status !== 'closed')
+  // The internal account is pinned to the top: it is the workspace's own work,
+  // not one client among many, and it never carries a portal link.
+  const accounts = (showClosed ? allAccounts : allAccounts.filter((a) => a.status !== 'closed'))
+    .slice()
+    .sort((a, b) => Number(b.is_internal) - Number(a.is_internal))
 
   function portalUrl(token: string) {
     return `${window.location.origin}/portal/${token}`
@@ -43,7 +47,7 @@ export function Accounts() {
     <div>
       <PageHeader
         title="Accounts"
-        subtitle="Clients, their work, and their read-only portal links."
+        subtitle="Your own work, your clients, and their read-only portal links."
         actions={
           isAdminOrExecutive && (
             <button className="btn-primary" onClick={() => setShowNew(true)}>
@@ -70,7 +74,11 @@ export function Accounts() {
             const link = links.find((l) => l.account_id === a.id)
             const totalHours = theirs.reduce((s, p) => s + p.total_hours, 0)
             const totalAccrued = theirs.reduce((s, p) => s + (p.accrued_amount ?? 0), 0)
-            const totalBudget = theirs.reduce((s, p) => s + p.budget_amount, 0)
+            // Untracked projects have no budget to add, so they leave the total
+            // rather than quietly counting as zero.
+            const tracked = theirs.filter((p) => p.budget_amount !== null)
+            const totalBudget = tracked.reduce((s, p) => s + (p.budget_amount ?? 0), 0)
+            const totalCost = theirs.reduce((s, p) => s + (p.accrued_cost ?? 0), 0)
 
             return (
               <div key={a.id} className="card p-4">
@@ -78,26 +86,36 @@ export function Accounts() {
                   <div>
                     <div className="flex items-center gap-2">
                       <p className="text-base font-semibold text-ink-900">{a.name}</p>
+                      {a.is_internal && <span className="chip bg-brand-100 text-brand-700">Internal</span>}
                       {a.status === 'closed' && <span className="chip bg-cream-200 text-ink-500">Closed</span>}
                     </div>
                     <p className="text-sm text-ink-500">
-                      {a.primary_contact_name ?? 'No contact'}
-                      {a.primary_contact_email ? ` · ${a.primary_contact_email}` : ''}
+                      {a.is_internal
+                        ? 'The workspace\'s own work — no client, no portal link'
+                        : `${a.primary_contact_name ?? 'No contact'}${
+                            a.primary_contact_email ? ` · ${a.primary_contact_email}` : ''
+                          }`}
                     </p>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
-                    {hasFinancialAccess && (
-                      <span className="text-sm text-ink-500">
-                        {hours(totalHours)} · {money(totalAccrued)} of {money(totalBudget)}
-                      </span>
-                    )}
+                    {hasFinancialAccess &&
+                      (a.is_internal ? (
+                        <span className="text-sm text-ink-500">
+                          {hours(totalHours)} · {money(totalCost)} internal cost
+                        </span>
+                      ) : (
+                        <span className="text-sm text-ink-500">
+                          {hours(totalHours)} · {money(totalAccrued)} of {money(totalBudget)}
+                          {tracked.length < theirs.length && ` · ${theirs.length - tracked.length} untracked`}
+                        </span>
+                      ))}
                     {isAdminOrExecutive && (
                       <button className="btn-ghost" onClick={() => setEditing(a)}>
                         <Pencil size={15} /> Edit
                       </button>
                     )}
-                    {link ? (
+                    {a.is_internal ? null : link ? (
                       <>
                         <button className="btn-ghost" onClick={() => void copy(link.token)}>
                           {copied === link.token ? <Check size={15} /> : <Copy size={15} />}
@@ -135,7 +153,11 @@ export function Accounts() {
                         </span>
                       </div>
                       <div className="mt-2.5">
-                        <BurnBar percent={p.pct_amount} />
+                        {p.budget_amount === null ? (
+                          <span className="chip bg-brand-100 text-brand-700">No budget · open-ended</span>
+                        ) : (
+                          <BurnBar percent={p.pct_amount} />
+                        )}
                       </div>
                     </Link>
                   ))}
@@ -301,9 +323,16 @@ function EditAccountModal({ account, onClose }: { account: Account; onClose: () 
         {done && <p className="text-sm text-brand-700">Account updated.</p>}
 
         <div className="border-t border-cream-300 pt-3">
-          <button className="btn-danger w-full" disabled={archive.isPending} onClick={() => setConfirmingDelete(true)}>
-            <Trash2 size={16} /> Delete account
-          </button>
+          {account.is_internal ? (
+            <p className="text-xs text-ink-500">
+              This is the workspace's internal account. It can't be deleted — every workspace keeps
+              exactly one, and it's where projects without a budget or an end date live.
+            </p>
+          ) : (
+            <button className="btn-danger w-full" disabled={archive.isPending} onClick={() => setConfirmingDelete(true)}>
+              <Trash2 size={16} /> Delete account
+            </button>
+          )}
         </div>
       </div>
 

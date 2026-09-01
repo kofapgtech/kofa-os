@@ -1,21 +1,46 @@
 import { useMemo, useState } from 'react'
-import { ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Lock, Plus, RotateCcw, Trash2 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import {
+  useDecideTimesheetWeek,
   useDeleteTimeEntry,
+  useEnsureTimesheetWeeks,
   useLogTime,
   useProjectBudgets,
   useTasks,
   useTimeEntries,
+  useTimesheetWeeks,
 } from '@/lib/queries'
-import { EmptyState, PageHeader, Spinner } from '@/components/ui'
-import { hours, minutesToHours, shortDate } from '@/lib/format'
+import { Chip, EmptyState, PageHeader, Spinner } from '@/components/ui'
+import {
+  TIMESHEET_STATUS_CLASS,
+  TIMESHEET_STATUS_LABEL,
+  hours,
+  minutesToHours,
+  shortDate,
+} from '@/lib/format'
+import type { TimesheetWeekRow } from '@/lib/types'
 
 function mondayOf(date: Date) {
   const d = new Date(date)
   d.setDate(d.getDate() - ((d.getDay() + 6) % 7))
   d.setHours(0, 0, 0, 0)
   return d
+}
+
+/** YYYY-MM-DD from a local Date, without the timezone shift toISOString()
+ *  would apply. This is what timesheet_weeks.week_start is keyed on. */
+function dateKey(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+    d.getDate(),
+  ).padStart(2, '0')}`
+}
+
+/** A week that has left the person's hands: its hours are evidence in an
+ *  approval, so nothing in it can be edited or deleted until an approver
+ *  sends it back. */
+function isLocked(status: TimesheetWeekRow['status']) {
+  return status === 'pending_lead' || status === 'pending_md' || status === 'approved'
 }
 
 export function Timesheet() {
@@ -46,12 +71,38 @@ export function Timesheet() {
   )
 
   const { data: entries = [], isLoading } = useTimeEntries({
-    userId: profile?.id,
+    userId: profile?.user_id,
     since: weekStart.toISOString(),
   })
   const { data: projects = [] } = useProjectBudgets()
   const { data: tasks = [] } = useTasks()
   const remove = useDeleteTimeEntry()
+
+  // Contractors' weeks go through lead -> MD -> payroll. ensure() is the
+  // idempotent housekeeping that creates the week rows and auto-submits any
+  // week that has finished, so nobody has to remember to press submit.
+  const isContractor = profile?.employment_type === 'contractor'
+  useEnsureTimesheetWeeks(isContractor)
+  const { data: myWeeks = [] } = useTimesheetWeeks({ userId: profile?.user_id })
+
+  const weekKey = dateKey(weekStart)
+  const weekApprovals = useMemo(
+    () => myWeeks.filter((w) => w.week_start === weekKey),
+    [myWeeks, weekKey],
+  )
+
+  /** Which workstream an entry's hours are approved under: the task's, or —
+   *  for time logged with no task — the person's own. Mirrors the same
+   *  coalesce the database does in v_time_entry_weeks. */
+  function entryDepartment(taskId: string | null) {
+    return tasks.find((t) => t.id === taskId)?.department_id ?? profile?.department_id ?? null
+  }
+
+  function lockedFor(taskId: string | null) {
+    const dept = entryDepartment(taskId)
+    const row = weekApprovals.find((w) => (w.department_id ?? null) === dept)
+    return row ? isLocked(row.status) : false
+  }
 
   const weekEntries = entries.filter((e) => new Date(e.started_at) < weekEnd)
 
@@ -105,6 +156,10 @@ export function Timesheet() {
           </>
         }
       />
+
+      {weekApprovals.length > 0 && (
+        <ApprovalStrip rows={weekApprovals} canResubmit={profile?.user_id} />
+      )}
 
       {rows.length === 0 ? (
         <EmptyState
@@ -185,13 +240,22 @@ export function Timesheet() {
                 <span className="text-sm font-semibold tabular-nums">
                   {minutesToHours(e.duration_minutes).toFixed(2)}h
                 </span>
-                <button
-                  className="text-ink-400 hover:text-rose-600"
-                  title="Delete entry"
-                  onClick={() => remove.mutate(e.id)}
-                >
-                  <Trash2 size={15} />
-                </button>
+                {lockedFor(e.task_id) ? (
+                  <span
+                    className="text-ink-300"
+                    title="This week is in approval — its time can't be changed"
+                  >
+                    <Lock size={15} />
+                  </span>
+                ) : (
+                  <button
+                    className="text-ink-400 hover:text-rose-600"
+                    title="Delete entry"
+                    onClick={() => remove.mutate(e.id)}
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                )}
               </div>
             </div>
           ))}
@@ -202,6 +266,76 @@ export function Timesheet() {
       </div>
 
       {adding && <LogTimeDialog onClose={() => setAdding(false)} />}
+    </div>
+  )
+}
+
+/** Where this week stands, one card per workstream the person logged against.
+ *  A returned week is the only one that needs an action from them, so it is
+ *  the only one with a button. */
+function ApprovalStrip({
+  rows,
+  canResubmit,
+}: {
+  rows: TimesheetWeekRow[]
+  canResubmit: string | undefined
+}) {
+  const decide = useDecideTimesheetWeek()
+
+  return (
+    <div className="mb-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      {rows.map((w) => (
+        <div key={w.id} className="card p-3.5">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-ink-900">
+                {w.department_name ?? 'No workstream'}
+              </p>
+              <p className="text-xs text-ink-500">
+                {minutesToHours(w.total_minutes).toFixed(2)}h · {w.entry_count} entr
+                {w.entry_count === 1 ? 'y' : 'ies'}
+              </p>
+            </div>
+            <Chip className={TIMESHEET_STATUS_CLASS[w.status]}>
+              {w.paid_at ? 'Paid' : TIMESHEET_STATUS_LABEL[w.status]}
+            </Chip>
+          </div>
+
+          {w.status === 'rejected' && (
+            <div className="mt-2.5 rounded-lg bg-rose-50 p-2.5">
+              <p className="text-xs text-rose-800">
+                {w.rejection_comment ?? 'Sent back for changes.'}
+              </p>
+              {w.rejected_by_name && (
+                <p className="mt-1 text-[11px] text-rose-600">— {w.rejected_by_name}</p>
+              )}
+              {canResubmit === w.user_id && (
+                <button
+                  className="btn-ghost mt-2 !py-1 !text-xs"
+                  disabled={decide.isPending}
+                  onClick={() => decide.mutate({ weekId: w.id, decision: 'resubmit' })}
+                >
+                  <RotateCcw size={13} /> Fixed — resubmit
+                </button>
+              )}
+            </div>
+          )}
+
+          {w.status === 'pending_md' && w.lead_approved_by_name && (
+            <p className="mt-2 text-xs text-ink-500">Approved by {w.lead_approved_by_name}</p>
+          )}
+          {w.status === 'approved' && (
+            <p className="mt-2 text-xs text-ink-500">
+              Cleared for payroll{w.md_approved_by_name ? ` by ${w.md_approved_by_name}` : ''}
+            </p>
+          )}
+          {isLocked(w.status) && (
+            <p className="mt-2 flex items-center gap-1.5 text-[11px] text-ink-400">
+              <Lock size={11} /> Locked while it is being reviewed
+            </p>
+          )}
+        </div>
+      ))}
     </div>
   )
 }
@@ -232,7 +366,7 @@ function LogTimeDialog({ onClose }: { onClose: () => void }) {
         org_id: profile!.org_id,
         project_id: projectId,
         task_id: taskId || null,
-        user_id: profile!.id,
+        user_id: profile!.user_id,
         started_at: start.toISOString(),
         ended_at: end.toISOString(),
         description: note || null,

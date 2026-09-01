@@ -83,7 +83,11 @@ export function Projects() {
                 </div>
 
                 <div className="mt-4">
-                  <BurnBar percent={p.pct_amount} />
+                  {p.budget_amount === null ? (
+                    <span className="chip bg-brand-100 text-brand-700">Internal · no budget</span>
+                  ) : (
+                    <BurnBar percent={p.pct_amount} />
+                  )}
                 </div>
 
                 <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
@@ -91,29 +95,44 @@ export function Projects() {
                     <p className="text-ink-500">Hours logged</p>
                     <p className="font-semibold tabular-nums text-ink-900">{hours(p.total_hours)}</p>
                   </div>
-                  <div>
-                    <p className="text-ink-500">Spend</p>
-                    <p className="font-semibold tabular-nums text-ink-900">
-                      {money(p.accrued_amount)}
-                      {hasFinancialAccess && (
-                        <span className="font-normal text-ink-400"> / {money(p.budget_amount)}</span>
-                      )}
-                    </p>
-                  </div>
+                  {p.budget_amount === null ? (
+                    <div>
+                      <p className="text-ink-500">Internal cost</p>
+                      <p className="font-semibold tabular-nums text-ink-900">
+                        {hasFinancialAccess ? money(p.accrued_cost) : '—'}
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="text-ink-500">Spend</p>
+                      <p className="font-semibold tabular-nums text-ink-900">
+                        {money(p.accrued_amount)}
+                        {hasFinancialAccess && (
+                          <span className="font-normal text-ink-400"> / {money(p.budget_amount)}</span>
+                        )}
+                      </p>
+                    </div>
+                  )}
                   <div>
                     <p className="text-ink-500">Length</p>
                     <p className="font-semibold text-ink-900">
-                      {p.length_months} {p.length_months === 1 ? 'mo' : 'mos'}
+                      {p.length_months === null
+                        ? 'Open-ended'
+                        : `${p.length_months} ${p.length_months === 1 ? 'mo' : 'mos'}`}
                     </p>
                   </div>
                 </div>
 
                 {/* 5% tolerance so rounding noise doesn't cry wolf on healthy projects. */}
-                {hasFinancialAccess && p.projected_amount !== null && p.projected_amount > p.budget_amount * 1.05 && (
-                  <p className="mt-3 rounded-lg bg-rose-50 px-2.5 py-1.5 text-xs font-medium text-rose-700">
-                    Projected {money(p.projected_amount)} at current burn — {money(p.projected_amount - p.budget_amount)} over.
-                  </p>
-                )}
+                {hasFinancialAccess &&
+                  p.budget_amount !== null &&
+                  p.projected_amount !== null &&
+                  p.projected_amount > p.budget_amount * 1.05 && (
+                    <p className="mt-3 rounded-lg bg-rose-50 px-2.5 py-1.5 text-xs font-medium text-rose-700">
+                      Projected {money(p.projected_amount)} at current burn —{' '}
+                      {money(p.projected_amount - p.budget_amount)} over.
+                    </p>
+                  )}
               </Link>
             </div>
           ))}
@@ -156,20 +175,36 @@ function ProjectFields({
   setStatus: (v: Project['status']) => void
   startDate: string
   setStartDate: (v: string) => void
-  lengthMonths: string
-  setLengthMonths: (v: string) => void
-  budgetAmount: string
-  setBudgetAmount: (v: string) => void
+  /** null = open-ended. Only the internal account may set it. */
+  lengthMonths: string | null
+  setLengthMonths: (v: string | null) => void
+  /** null = no budget tracked. Only the internal account may set it. */
+  budgetAmount: string | null
+  setBudgetAmount: (v: string | null) => void
 }) {
+  // Untracked projects live only on the internal account — the same rule the
+  // projects_untracked_requires_internal trigger enforces in Postgres. Mirroring
+  // it here means the form can never submit something the database will reject.
+  const isInternal = !!accounts.find((a) => a.id === accountId)?.is_internal
+
+  function chooseAccount(nextId: string) {
+    setAccountId(nextId)
+    if (!accounts.find((a) => a.id === nextId)?.is_internal) {
+      if (lengthMonths === null) setLengthMonths('1')
+      if (budgetAmount === null) setBudgetAmount('')
+    }
+  }
+
   return (
     <>
       <div>
         <label className="label">Account</label>
-        <select className="input" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+        <select className="input" value={accountId} onChange={(e) => chooseAccount(e.target.value)}>
           <option value="">Select an account…</option>
           {accounts.map((a) => (
             <option key={a.id} value={a.id}>
               {a.name}
+              {a.is_internal ? ' — Internal' : ''}
             </option>
           ))}
         </select>
@@ -203,45 +238,91 @@ function ProjectFields({
           />
         </div>
         <div>
-          <label className="label">Length (months)</label>
-          <input
-            className="input"
-            type="number"
-            min="1"
-            step="1"
-            value={lengthMonths}
-            onChange={(e) => setLengthMonths(e.target.value)}
-          />
-          <div className="mt-1.5 flex gap-1.5">
-            {LENGTH_PRESETS.map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setLengthMonths(String(m))}
-                className={`chip cursor-pointer ${
-                  Number(lengthMonths) === m ? 'bg-brand-700 text-white' : 'bg-cream-200 text-ink-600'
-                }`}
-              >
-                {m}mo
-              </button>
-            ))}
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <label className="label !mb-0">Length (months)</label>
+            {isInternal && (
+              <label className="flex cursor-pointer items-center gap-1.5 text-xs text-ink-500">
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 rounded border-ink-300 text-brand-600 focus:ring-brand-500"
+                  checked={lengthMonths !== null}
+                  onChange={(e) => setLengthMonths(e.target.checked ? '1' : null)}
+                />
+                Set a length
+              </label>
+            )}
           </div>
+          {lengthMonths === null ? (
+            <p className="text-xs text-ink-500">Runs open-ended — no target end date.</p>
+          ) : (
+            <>
+              <input
+                className="input"
+                type="number"
+                min="1"
+                step="1"
+                value={lengthMonths}
+                onChange={(e) => setLengthMonths(e.target.value)}
+              />
+              <div className="mt-1.5 flex gap-1.5">
+                {LENGTH_PRESETS.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setLengthMonths(String(m))}
+                    className={`chip cursor-pointer ${
+                      Number(lengthMonths) === m ? 'bg-brand-700 text-white' : 'bg-cream-200 text-ink-600'
+                    }`}
+                  >
+                    {m}mo
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
         </div>
         <div className="col-span-2">
-          <label className="label">Budget amount</label>
-          <input
-            className="input"
-            type="number"
-            min="0"
-            value={budgetAmount}
-            onChange={(e) => setBudgetAmount(e.target.value)}
-          />
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <label className="label !mb-0">Budget amount</label>
+            {isInternal && (
+              <label className="flex cursor-pointer items-center gap-1.5 text-xs text-ink-500">
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 rounded border-ink-300 text-brand-600 focus:ring-brand-500"
+                  checked={budgetAmount !== null}
+                  onChange={(e) => setBudgetAmount(e.target.checked ? '' : null)}
+                />
+                Track a budget
+              </label>
+            )}
+          </div>
+          {budgetAmount === null ? (
+            <p className="text-xs text-ink-500">
+              No budget bar, burn %, or threshold alerts — hours and internal cost instead.
+            </p>
+          ) : (
+            <input
+              className="input"
+              type="number"
+              min="0"
+              value={budgetAmount}
+              onChange={(e) => setBudgetAmount(e.target.value)}
+            />
+          )}
         </div>
       </div>
-      <p className="text-xs text-ink-500">
-        The budget splits evenly across the length in months, starting from the start date — adjust the
-        split on the project's Budget tab once it's created.
-      </p>
+      {budgetAmount !== null && (
+        <p className="text-xs text-ink-500">
+          The budget splits evenly across the length in months, starting from the start date — adjust the
+          split on the project's Budget tab once it's created.
+        </p>
+      )}
+      {isInternal && (
+        <p className="text-xs text-ink-500">
+          Internal projects log non-billable time by default. Only this account can go without a budget
+          or an end date.
+        </p>
+      )}
     </>
   )
 }
@@ -255,8 +336,23 @@ function NewProjectModal({ orgId, onClose }: { orgId: string; onClose: () => voi
   const [code, setCode] = useState('')
   const [status, setStatus] = useState<Project['status']>('planning')
   const [startDate, setStartDate] = useState('')
-  const [lengthMonths, setLengthMonths] = useState('1')
-  const [budgetAmount, setBudgetAmount] = useState('')
+  const [lengthMonths, setLengthMonths] = useState<string | null>('1')
+  const [budgetAmount, setBudgetAmount] = useState<string | null>('')
+
+  const isInternal = !!accounts.find((a) => a.id === accountId)?.is_internal
+
+  // Picking the internal account switches the defaults to untracked — that is
+  // the whole point of it — while any client account keeps both required.
+  function chooseAccount(nextId: string) {
+    setAccountId(nextId)
+    if (accounts.find((a) => a.id === nextId)?.is_internal) {
+      setLengthMonths(null)
+      setBudgetAmount(null)
+    } else {
+      setLengthMonths((v) => v ?? '1')
+      setBudgetAmount((v) => v ?? '')
+    }
+  }
 
   async function submit() {
     await create.mutateAsync({
@@ -267,14 +363,15 @@ function NewProjectModal({ orgId, onClose }: { orgId: string; onClose: () => voi
       description: null,
       status,
       start_date: startDate || null,
-      length_months: lengthMonths ? Math.max(1, Number(lengthMonths)) : 1,
-      budget_amount: budgetAmount ? Number(budgetAmount) : 0,
-      default_billable: true,
+      length_months: lengthMonths === null ? null : Math.max(1, Number(lengthMonths)),
+      budget_amount: budgetAmount === null ? null : Number(budgetAmount) || 0,
+      default_billable: !isInternal,
     })
     onClose()
   }
 
-  const canSubmit = !!accountId && !!name.trim() && Number(lengthMonths) > 0
+  const canSubmit =
+    !!accountId && !!name.trim() && (lengthMonths === null || Number(lengthMonths) > 0)
 
   return (
     <Modal onClose={onClose}>
@@ -283,7 +380,7 @@ function NewProjectModal({ orgId, onClose }: { orgId: string; onClose: () => voi
         <ProjectFields
           accounts={accounts}
           accountId={accountId}
-          setAccountId={setAccountId}
+          setAccountId={chooseAccount}
           name={name}
           setName={setName}
           code={code}
@@ -318,8 +415,12 @@ export function EditProjectModal({ project, onClose }: { project: ProjectBudget;
   const [code, setCode] = useState(project.code ?? '')
   const [status, setStatus] = useState<Project['status']>(project.status)
   const [startDate, setStartDate] = useState(project.start_date ?? '')
-  const [lengthMonths, setLengthMonths] = useState(String(project.length_months))
-  const [budgetAmount, setBudgetAmount] = useState(String(project.budget_amount))
+  const [lengthMonths, setLengthMonths] = useState<string | null>(
+    project.length_months === null ? null : String(project.length_months),
+  )
+  const [budgetAmount, setBudgetAmount] = useState<string | null>(
+    project.budget_amount === null ? null : String(project.budget_amount),
+  )
   const [done, setDone] = useState(false)
 
   async function submit() {
@@ -331,8 +432,8 @@ export function EditProjectModal({ project, onClose }: { project: ProjectBudget;
         code: code.trim() || null,
         status,
         start_date: startDate || null,
-        length_months: lengthMonths ? Math.max(1, Number(lengthMonths)) : 1,
-        budget_amount: budgetAmount ? Number(budgetAmount) : 0,
+        length_months: lengthMonths === null ? null : Math.max(1, Number(lengthMonths)),
+        budget_amount: budgetAmount === null ? null : Number(budgetAmount) || 0,
       },
     })
     setDone(true)
@@ -346,7 +447,8 @@ export function EditProjectModal({ project, onClose }: { project: ProjectBudget;
     update.mutate({ id: project.project_id, patch: { status: 'archived' } }, { onSuccess: onClose })
   }
 
-  const canSubmit = !!accountId && !!name.trim() && Number(lengthMonths) > 0
+  const canSubmit =
+    !!accountId && !!name.trim() && (lengthMonths === null || Number(lengthMonths) > 0)
 
   return (
     <Modal onClose={onClose}>
@@ -369,10 +471,12 @@ export function EditProjectModal({ project, onClose }: { project: ProjectBudget;
           budgetAmount={budgetAmount}
           setBudgetAmount={setBudgetAmount}
         />
-        <p className="text-xs text-ink-500">
-          Changing the budget amount or start date here doesn't reflow the monthly split automatically —
-          revisit the Budget tab to rebalance months after a change.
-        </p>
+        {budgetAmount !== null && (
+          <p className="text-xs text-ink-500">
+            Changing the budget amount or start date here doesn't reflow the monthly split automatically —
+            revisit the Budget tab to rebalance months after a change.
+          </p>
+        )}
         <button
           className="btn-primary w-full"
           disabled={!canSubmit || update.isPending}

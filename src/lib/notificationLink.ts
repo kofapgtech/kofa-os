@@ -10,6 +10,15 @@ import type { AppNotification } from './types'
 export async function resolveNotificationHref(n: AppNotification): Promise<string | null> {
   if (!n.entity_type || !n.entity_id) return null
 
+  // Timesheet weeks are the one case where the same entity has two homes:
+  // the approver's queue and the person's own timesheet. The notification
+  // type, not the entity, says which one the reader wants.
+  if (n.entity_type === 'timesheet_week') {
+    return n.type === 'timesheet_submitted'
+      ? `/timesheet/approvals?week=${n.entity_id}`
+      : `/timesheet?week=${n.entity_id}`
+  }
+
   switch (n.entity_type) {
     case 'project':
       return `/projects/${n.entity_id}?tab=budget`

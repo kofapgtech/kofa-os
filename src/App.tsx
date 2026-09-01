@@ -13,6 +13,7 @@ import { Projects } from '@/pages/Projects'
 import { ProjectDetail } from '@/pages/ProjectDetail'
 import { Deliverables } from '@/pages/Deliverables'
 import { Timesheet } from '@/pages/Timesheet'
+import { TimesheetApprovals } from '@/pages/TimesheetApprovals'
 import { Accounts } from '@/pages/Accounts'
 import { AdminEmployees } from '@/pages/AdminEmployees'
 import { AdminDepartments } from '@/pages/AdminDepartments'
@@ -20,6 +21,7 @@ import { PayrollPayment } from '@/pages/PayrollPayment'
 import { PayrollRecords } from '@/pages/PayrollRecords'
 import { NotificationsPage } from '@/pages/NotificationsPage'
 import { ProfilePage } from '@/pages/Profile'
+import { WorkspaceSettings } from '@/pages/WorkspaceSettings'
 import { Portal } from '@/pages/Portal'
 
 const queryClient = new QueryClient({
@@ -56,6 +58,7 @@ export default function App() {
               <Route path="/projects/:projectId" element={<ProjectDetail />} />
               <Route path="/deliverables" element={<Deliverables />} />
               <Route path="/timesheet" element={<Timesheet />} />
+              <Route path="/timesheet/approvals" element={<TimesheetApprovals />} />
               <Route path="/accounts" element={<Accounts />} />
               <Route path="/admin" element={<Navigate to="/admin/employees" replace />} />
               <Route path="/admin/employees" element={<AdminEmployees />} />
@@ -65,6 +68,7 @@ export default function App() {
               <Route path="/payroll/records" element={<PayrollRecords />} />
               <Route path="/notifications" element={<NotificationsPage />} />
               <Route path="/profile" element={<ProfilePage />} />
+              <Route path="/settings" element={<WorkspaceSettings />} />
             </Route>
 
             <Route path="*" element={<Navigate to="/" replace />} />

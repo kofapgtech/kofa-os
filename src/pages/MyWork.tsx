@@ -37,10 +37,10 @@ export function MyWork() {
     return d.toISOString()
   }, [])
 
-  const { data: myWeek = [] } = useTimeEntries({ userId: profile?.id, since: weekStart })
+  const { data: myWeek = [] } = useTimeEntries({ userId: profile?.user_id, since: weekStart })
 
   const myTaskIds = useMemo(
-    () => new Set(taskAssignees.filter((a) => a.profile_id === profile?.id).map((a) => a.task_id)),
+    () => new Set(taskAssignees.filter((a) => a.profile_id === profile?.user_id).map((a) => a.task_id)),
     [taskAssignees, profile],
   )
   const myTasks = useMemo(
@@ -58,8 +58,8 @@ export function MyWork() {
     () =>
       deliverables.filter(
         (d) =>
-          (d.reviewer_id === profile?.id && d.stage === 'internal_review') ||
-          (d.owner_id === profile?.id && d.stage === 'revisions_requested'),
+          (d.reviewer_id === profile?.user_id && d.stage === 'internal_review') ||
+          (d.owner_id === profile?.user_id && d.stage === 'revisions_requested'),
       ),
     [deliverables, profile],
   )
@@ -67,7 +67,7 @@ export function MyWork() {
   // RLS already scoped this to "my own, or ones I can decide" - excluding my
   // own here is the only client-side filter needed to get "waiting on me."
   const myApprovals = useMemo(
-    () => pendingRequests.filter((r) => r.requested_by !== profile?.id),
+    () => pendingRequests.filter((r) => r.requested_by !== profile?.user_id),
     [pendingRequests, profile],
   )
   const taskById = useMemo(() => Object.fromEntries(tasks.map((t) => [t.id, t])), [tasks])
@@ -83,7 +83,7 @@ export function MyWork() {
     const ids = new Set<string>()
     if (profile?.role === 'dept_lead' && profile.department_id) ids.add(profile.department_id)
     departmentLeads.forEach((dl) => {
-      if (dl.profile_id === profile?.id) ids.add(dl.department_id)
+      if (dl.profile_id === profile?.user_id) ids.add(dl.department_id)
     })
     return ids
   }, [profile, departmentLeads])

@@ -1,6 +1,6 @@
 # PRD — Workspaces
 
-**Status:** Draft for review · revised 2026-08-30 after scoping call
+**Status:** Phases 1, 2 and 3 SHIPPED 2026-08-31 · commercial layer deferred
 **Author:** Kofa Tech
 **Epic:** Workspaces
 **Prototype:** eight clickable screens — see the Workspaces prototype artifact
@@ -289,7 +289,26 @@ Flagged rather than assumed, because it rewrites 154 rows of history.
 
 ---
 
-## 4. Phase 2 — Tenancy foundation
+## 4. Phase 2 — Tenancy foundation  ✅ SHIPPED 2026-08-31
+
+> **As built.** Seven migrations, `20260831010812` → `20260831032043`. Two
+> deviations from the sketch below, both deliberate:
+>
+> 1. **The surrogate key is `membership_id`, not `id`, and there is no
+>    `profiles.id` at all.** Function bodies are stored as text and are not
+>    rewritten by a column rename, so a stray `where id = auth.uid()` would have
+>    matched nothing against a surrogate `id` and silently denied access to
+>    everyone. With no such column it raises instead. Fail loud, not quiet.
+> 2. **Display fields stayed on `profiles`** (per-membership) rather than moving
+>    to `app_users`. Smaller blast radius, and a per-workspace display name is
+>    defensible. `app_users` is a pure identity anchor.
+>
+> Also found and fixed, which this section did not anticipate: `profile_rates`
+> was `PRIMARY KEY (profile_id)` — one pay rate per person for the whole
+> installation. Widened to `(profile_id, org_id)`.
+>
+> The gate is `check_workspace_isolation()`: eight checks, all passing.
+
 
 No user-visible change. This is the structural work, and it ships alone so a
 rollback is never ambiguous.
@@ -360,7 +379,29 @@ is not a claim we make, it is a test that passes.
 
 ---
 
-## 5. Phase 3 — Workspace lifecycle
+## 5. Phase 3 — Workspace lifecycle  ✅ SHIPPED 2026-08-31
+
+> **As built.** Three migrations, `20260831040913` → `20260831041015`, plus the
+> switcher and a `/settings` page. Three scoping calls made on the day:
+>
+> 1. **`create_workspace()` is gated to platform staff, not self-serve.** The
+>    machinery is built and exercised; production's front door stays shut while
+>    Kofa's payroll data lives here. Opening it later is a one-line change.
+> 2. **`owner` is a flag on the membership, not a role.** Nothing that switches
+>    on `role` had to change. Owner powers are checked with
+>    `is_workspace_owner()`, never by reading `role`.
+> 3. **Currency and pay cadence are wired through**, not just stored.
+>
+> A real second workspace — **Meridian Studio**, GBP, biweekly — now exists, and
+> the isolation claim is no longer structural: a dual-membership user sees zero
+> rows from the workspace they are not in, and a cross-workspace write is
+> rejected by the composite foreign key. Teardown script:
+> `supabase/migrations/_TEARDOWN_meridian_test_workspace.sql`.
+>
+> Still open from this section: `workspace_invites` (pending invites are not yet
+> visible or revocable), the onboarding checklist and empty states, and rendering
+> the stored logo/brand colour in `Logo.tsx`.
+
 
 - **`create_workspace(name, slug)`** — one `SECURITY DEFINER` RPC, one transaction:
   insert the organisation, make the caller its owner, set it active, seed the six

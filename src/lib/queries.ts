@@ -1,5 +1,6 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from '@/contexts/ToastContext'
 import { supabase } from './supabaseClient'
 import type {
@@ -30,8 +31,15 @@ import type {
   TaskHourAllocation,
   TaskTimeRequest,
   TimeEntry,
+  TimesheetDecision,
+  TimesheetWeekReview,
+  TimesheetWeekRow,
   UserRole,
+  Organization,
+  OrgEmailDomain,
+  PayPeriodCadence,
   UserUtilization,
+  WorkspaceMembership,
   WorkstreamBudgetRequest,
   WorkstreamBudgetRow,
 } from './types'
@@ -111,7 +119,9 @@ export function useUpdateProfile() {
         >
       >
     }) => {
-      const { error } = await supabase.from('profiles').update(patch).eq('id', id)
+      // `id` here is the person (auth.users.id). RLS scopes profiles to the
+      // active workspace, so this hits exactly their membership in it.
+      const { error } = await supabase.from('profiles').update(patch).eq('user_id', id)
       if (error) throw new Error(error.message)
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['profiles'] }),
@@ -143,7 +153,7 @@ export function useUpdateCostRate() {
     mutationFn: async ({ profileId, orgId, costRate }: { profileId: string; orgId: string; costRate: number }) => {
       const { error } = await supabase
         .from('profile_rates')
-        .upsert({ profile_id: profileId, org_id: orgId, cost_rate: costRate }, { onConflict: 'profile_id' })
+        .upsert({ profile_id: profileId, org_id: orgId, cost_rate: costRate }, { onConflict: 'profile_id,org_id' })
       if (error) throw new Error(error.message)
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['profile-rates'] }),
@@ -561,8 +571,10 @@ export function useCreateProject() {
       description: string | null
       status: Project['status']
       start_date: string | null
-      length_months: number
-      budget_amount: number
+      /** Null = open-ended. Rejected by the DB unless the account is internal. */
+      length_months: number | null
+      /** Null = untracked. Rejected by the DB unless the account is internal. */
+      budget_amount: number | null
       default_billable: boolean
     }) => {
       const { data, error } = await supabase.from('projects').insert(project).select('id').single()
@@ -791,7 +803,8 @@ export function useSetTaskAssignees() {
 
 /** Planned hours committed to contractors on tasks, by budget month. Powers
  *  both the task drawer's hour-assignment UI and the workstream budget's
- *  "committed" figure (hours × bill_rate, computed in v_workstream_budget). */
+ *  "committed" figure (hours × cost_rate — pay rate, not the client bill
+ *  rate — computed in v_workstream_budget). */
 export function useTaskHourAllocations(taskId?: string) {
   return useQuery({
     queryKey: ['task-hour-allocations', taskId ?? 'all'],
@@ -1024,20 +1037,27 @@ export function usePayrollEntries(periodStart?: string, periodEnd?: string) {
         // billable_amount (hours x the client's bill rate) is a different number
         // entirely, for invoicing the client, and is 0 for anyone not billed out
         // (e.g. most contractors), which used to show as a misleading $0 owed here.
-        .select('cost_amount, user_id, profiles(full_name), project:projects(id, name), time_entries(duration_minutes)')
+        .select('cost_amount, user_id, project:projects(id, name), time_entries(duration_minutes)')
         .gte('entry_date', periodStart as string)
         .lte('entry_date', periodEnd as string)
       if (error) throw new Error(error.message)
 
+      // Names are looked up separately rather than embedded: actor columns now
+      // reference app_users, so PostgREST has no profiles relationship to walk.
+      const { data: people, error: peopleError } = await supabase
+        .from('profiles')
+        .select('user_id, full_name')
+      if (peopleError) throw new Error(peopleError.message)
+      const nameByUser = new Map((people ?? []).map((p) => [p.user_id as string, p.full_name as string]))
+
       const rows: PayrollEntry[] = []
       for (const row of data ?? []) {
         const project = row.project as unknown as { id: string; name: string } | null
-        const profile = row.profiles as unknown as { full_name: string } | null
         if (!project) continue
         const minutes = (row.time_entries as unknown as { duration_minutes: number | null } | null)?.duration_minutes ?? 0
         rows.push({
           profile_id: row.user_id,
-          profile_name: profile?.full_name ?? 'Unknown',
+          profile_name: nameByUser.get(row.user_id as string) ?? 'Unknown',
           project_id: project.id,
           project_name: project.name,
           hours: minutes / 60,
@@ -1091,9 +1111,20 @@ export function usePayrollPayments() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('payroll_payments')
-        .select('*, profile:profiles!payroll_payments_profile_id_fkey(full_name), pay_period:pay_periods(period_start, period_end)')
+        .select('*, pay_period:pay_periods(period_start, period_end)')
         .order('paid_at', { ascending: false })
-      return unwrap<PayrollPaymentRow[]>(data, error)
+      if (error) throw new Error(error.message)
+
+      const { data: people, error: peopleError } = await supabase
+        .from('profiles')
+        .select('user_id, full_name')
+      if (peopleError) throw new Error(peopleError.message)
+      const nameByUser = new Map((people ?? []).map((p) => [p.user_id as string, p.full_name as string]))
+
+      return (data ?? []).map((row) => ({
+        ...row,
+        profile: { full_name: nameByUser.get(row.profile_id as string) ?? 'Unknown' },
+      })) as PayrollPaymentRow[]
     },
   })
 }
@@ -1480,6 +1511,193 @@ export function useDeleteTimeEntry() {
   })
 }
 
+// -------------------------------------------------------- timesheet approval
+
+/** Anything that moves a week through the chain also changes what payroll is
+ *  allowed to do, so these invalidate together. */
+const TIMESHEET_KEYS = [['timesheet-weeks'], ['timesheet-week-reviews'], ['payroll-blockers']]
+
+/** Idempotent housekeeping, same pattern as useEnsurePayPeriods: creates any
+ *  missing (contractor, week, workstream) rows and auto-submits the ones whose
+ *  week has finished. Cheap to call on every page that shows a queue. */
+export function useEnsureTimesheetWeeks(enabled = true) {
+  const qc = useQueryClient()
+  return useQuery({
+    queryKey: ['timesheet-weeks', 'ensure'],
+    enabled,
+    queryFn: async () => {
+      const { error } = await supabase.rpc('ensure_timesheet_weeks')
+      if (error) throw new Error(error.message)
+      qc.invalidateQueries({ queryKey: ['timesheet-weeks'] })
+      return true
+    },
+    staleTime: 5 * 60_000,
+  })
+}
+
+/** Timesheet weeks, newest first. RLS decides what comes back: your own weeks
+ *  always, plus everyone's if you are a lead, admin, executive or finance —
+ *  so the same hook backs both the person's own banner and the approval
+ *  queues, filtered client-side. */
+export function useTimesheetWeeks(opts: { userId?: string; status?: string[] } = {}) {
+  return useQuery({
+    queryKey: ['timesheet-weeks', opts.userId ?? '-', (opts.status ?? []).join(',')],
+    queryFn: async () => {
+      let q = supabase
+        .from('v_timesheet_weeks')
+        .select('*')
+        .order('week_start', { ascending: false })
+      if (opts.userId) q = q.eq('user_id', opts.userId)
+      if (opts.status?.length) q = q.in('status', opts.status)
+      const { data, error } = await q.limit(500)
+      return unwrap<TimesheetWeekRow[]>(data, error)
+    },
+  })
+}
+
+export function useTimesheetWeekReviews(weekId?: string) {
+  return useQuery({
+    queryKey: ['timesheet-week-reviews', weekId],
+    enabled: !!weekId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('timesheet_week_reviews')
+        .select('*')
+        .eq('timesheet_week_id', weekId as string)
+        .order('created_at', { ascending: false })
+      return unwrap<TimesheetWeekReview[]>(data, error)
+    },
+  })
+}
+
+const DECISION_TOAST: Record<TimesheetDecision, string> = {
+  lead_approve: 'Approved — sent to the managing director',
+  md_approve: 'Approved for payroll',
+  reject: 'Sent back to be fixed',
+  resubmit: 'Resubmitted for approval',
+  reopen: 'Week reopened',
+}
+
+/** The single write path for a timesheet week. Every rule (who may act, from
+ *  which state, comment required on a rejection) lives in the RPC, so a
+ *  failure here is the server talking and its message is worth showing. */
+export function useDecideTimesheetWeek() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (args: { weekId: string; decision: TimesheetDecision; comment?: string }) => {
+      const { error } = await supabase.rpc('decide_timesheet_week', {
+        p_week_id: args.weekId,
+        p_decision: args.decision,
+        p_comment: args.comment ?? null,
+      })
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: (_data, vars) => {
+      TIMESHEET_KEYS.forEach((key) => qc.invalidateQueries({ queryKey: key }))
+      qc.invalidateQueries({ queryKey: ['notifications'] })
+      toast.success(DECISION_TOAST[vars.decision])
+    },
+    onError: (err: Error) => toast.error("Couldn't record that decision", err.message),
+  })
+}
+
+/** Keeps every open timesheet queue in sync across sessions: a lead
+ *  confirming hours on one screen should move the row on the managing
+ *  director's screen (and finance's) without anyone reloading. Mirrors the
+ *  realtime pattern NotificationsProvider uses -- there's no local state to
+ *  reconcile here, since everything reads through React Query, so on any
+ *  change we just invalidate the cache and let each active query refetch.
+ *
+ *  postgres_changes filters per-subscriber by the table's own RLS SELECT
+ *  policy, so a contractor's channel only ever fires for their own rows --
+ *  this can't leak another person's approval status or comments to them.
+ *  Mount once near the root of the authenticated app (AppShell), not per
+ *  page, so opening several timesheet-related pages doesn't open several
+ *  channels. */
+export function useTimesheetWeeksRealtime() {
+  const { profile } = useAuth()
+  const qc = useQueryClient()
+  const orgId = profile?.org_id ?? null
+
+  useEffect(() => {
+    if (!orgId) return
+
+    const channel = supabase
+      .channel(`timesheet-weeks:${orgId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'timesheet_weeks', filter: `org_id=eq.${orgId}` },
+        () => qc.invalidateQueries({ queryKey: ['timesheet-weeks'] }),
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'timesheet_week_reviews', filter: `org_id=eq.${orgId}` },
+        () => qc.invalidateQueries({ queryKey: ['timesheet-week-reviews'] }),
+      )
+      .subscribe()
+
+    return () => void supabase.removeChannel(channel)
+  }, [orgId, qc])
+}
+
+/** Every entry behind one timesheet week. Two round trips rather than one:
+ *  v_time_entry_weeks is a view, so PostgREST has no relationship to embed
+ *  time_entries through — it hands back the ids and we fetch the rows. */
+export function useTimesheetWeekEntries(week?: {
+  user_id: string
+  week_start: string
+  department_id: string | null
+}) {
+  return useQuery({
+    queryKey: ['timesheet-week-entries', week?.user_id, week?.week_start, week?.department_id ?? '-'],
+    enabled: !!week,
+    queryFn: async () => {
+      const { data: keys, error: keyError } = await supabase
+        .from('v_time_entry_weeks')
+        .select('time_entry_id, department_id')
+        .eq('user_id', week!.user_id)
+        .eq('week_start', week!.week_start)
+      if (keyError) throw new Error(keyError.message)
+
+      const ids = (keys ?? [])
+        .filter((k) => (k.department_id ?? null) === (week!.department_id ?? null))
+        .map((k) => k.time_entry_id as string)
+      if (ids.length === 0) return []
+
+      const { data, error } = await supabase
+        .from('time_entries')
+        .select('*')
+        .in('id', ids)
+        .order('started_at')
+      return unwrap<TimeEntry[]>(data, error)
+    },
+  })
+}
+
+/** Per-person "is their time cleared for payroll?" for one pay period, keyed
+ *  by user_id. Employees never appear — only contractors go through the
+ *  chain — so a missing key means "nothing blocking". */
+export function usePayrollApprovalBlockers(periodStart?: string, periodEnd?: string) {
+  const { data: weeks = [], isLoading } = useTimesheetWeeks()
+  const blockers = useMemo(() => {
+    const map = new Map<string, TimesheetWeekRow[]>()
+    if (!periodStart || !periodEnd) return map
+    for (const w of weeks) {
+      if (w.status === 'approved') continue
+      // A week blocks a period only if some of its days actually fall in it.
+      const start = w.week_start
+      const end = new Date(new Date(`${w.week_start}T00:00:00Z`).getTime() + 6 * 86_400_000)
+        .toISOString()
+        .slice(0, 10)
+      if (end < periodStart || start > periodEnd) continue
+      map.set(w.user_id, [...(map.get(w.user_id) ?? []), w])
+    }
+    return map
+  }, [weeks, periodStart, periodEnd])
+  return { blockers, isLoading }
+}
+
 // -------------------------------------------------------------- share links
 
 export function useShareLinks() {
@@ -1512,5 +1730,198 @@ export function useCreateShareLink() {
       toast.success('Client link created')
     },
     onError: (err: Error) => toast.error("Couldn't create link", err.message),
+  })
+}
+
+// ------------------------------------------------------------- workspaces
+
+/** Every workspace the signed-in person holds an active membership in.
+ *  One row today; the Phase 3 switcher renders this list. */
+export function useMyWorkspaces() {
+  return useQuery({
+    queryKey: ['my-workspaces'],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('my_workspaces')
+      return unwrap<WorkspaceMembership[]>(data, error)
+    },
+    staleTime: 5 * 60_000,
+  })
+}
+
+/** Switches which workspace this session is in. The RPC verifies an active
+ *  membership before writing — that check is the security boundary, not this
+ *  call — and every RLS policy follows because they all route through
+ *  current_org_id(). Everything cached is workspace-scoped, so the whole
+ *  query cache is dropped on success. */
+export function useSetActiveWorkspace() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (orgId: string) => {
+      const { error } = await supabase.rpc('set_active_workspace', { p_org_id: orgId })
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => qc.clear(),
+    onError: (err: Error) => toast.error("Couldn't switch workspace", err.message),
+  })
+}
+
+// ------------------------------------------------- the workspace itself
+
+/** The active workspace. RLS scopes `organizations` to current_org_id(), so
+ *  this is always exactly one row — no filter needed. */
+export function useWorkspace() {
+  return useQuery({
+    queryKey: ['workspace'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('organizations').select('*').maybeSingle()
+      if (error) throw new Error(error.message)
+      return data as Organization | null
+    },
+    staleTime: 5 * 60_000,
+  })
+}
+
+/** Owner-only — the org_update policy enforces it, this just shapes the call. */
+export function useUpdateWorkspace() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async ({ id, patch }: { id: string; patch: Partial<Organization> }) => {
+      const { error } = await supabase
+        .from('organizations')
+        .update({ ...patch, updated_at: new Date().toISOString() })
+        .eq('id', id)
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ['workspace'] })
+      qc.invalidateQueries({ queryKey: ['my-workspaces'] })
+      // Cadence drives the pay period calendar; currency drives every figure.
+      if (vars.patch.pay_period_cadence) qc.invalidateQueries({ queryKey: ['pay-periods'] })
+      toast.success('Workspace updated')
+    },
+    onError: (err: Error) => toast.error("Couldn't save workspace settings", err.message),
+  })
+}
+
+export function useOrgEmailDomains() {
+  return useQuery({
+    queryKey: ['org-email-domains'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('org_email_domains').select('*').order('domain')
+      return unwrap<OrgEmailDomain[]>(data, error)
+    },
+  })
+}
+
+/** Hands the workspace to someone else, atomically. The RPC checks that the
+ *  caller is the current owner and the target is an active member; the
+ *  is_owner column can't be moved by a direct update at all. */
+export function useTransferOwnership() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (toUserId: string) => {
+      const { error } = await supabase.rpc('transfer_workspace_ownership', { p_to_user_id: toUserId })
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['profiles'] })
+      qc.invalidateQueries({ queryKey: ['workspace'] })
+      toast.success('Ownership transferred')
+    },
+    onError: (err: Error) => toast.error("Couldn't transfer ownership", err.message),
+  })
+}
+
+/** Soft-deletes the caller's active workspace: is_workspace_owner() or
+ *  is_platform_admin(), and the caller must already belong to another
+ *  active workspace (that's the "more than one workspace" gate — it's
+ *  about the acting owner never being left with nowhere to go, not a
+ *  platform-wide floor). On success the RPC has already switched the
+ *  caller's active workspace to that other one. */
+export function useDeleteWorkspace() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.rpc('delete_workspace')
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => qc.clear(),
+    onError: (err: Error) => toast.error("Couldn't delete workspace", err.message),
+  })
+}
+
+/** Wipes all operational data in the current workspace (accounts, projects,
+ *  tasks, time entries, deliverables, budgets, payroll, notifications) but
+ *  keeps the workspace itself, its settings, and everyone's membership --
+ *  unless `wipeEmployees` is set, which additionally removes every profile
+ *  (and their pay rate, workstream-lead tags, and attachments) except the
+ *  workspace owner and anyone with the Admin role. Workstreams themselves
+ *  are never touched either way -- this is a people-and-data wipe, not a
+ *  structure wipe. Soft: reset_workspace() archives everything first, so a
+ *  mistake is recoverable via direct DB access for now (no purge job or
+ *  recovery UI exists yet). Same permission tier as delete — owner or
+ *  platform staff — but no "belong to another workspace" gate, since
+ *  resetting doesn't strand anyone. */
+export function useResetWorkspace() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (wipeEmployees: boolean) => {
+      const { error } = await supabase.rpc('reset_workspace', { p_wipe_employees: wipeEmployees })
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => qc.clear(),
+    onError: (err: Error) => toast.error("Couldn't reset workspace", err.message),
+  })
+}
+
+/** platform_admins has RLS on and zero policies, so it can't be read from the
+ *  client at all — this asks the SECURITY DEFINER helper instead. */
+export function useIsPlatformAdmin() {
+  return useQuery({
+    queryKey: ['is-platform-admin'],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('is_platform_admin')
+      if (error) throw new Error(error.message)
+      return data === true
+    },
+    staleTime: 30 * 60_000,
+  })
+}
+
+/** Creates a workspace and everything it needs to be usable on arrival —
+ *  workstreams, an internal account, a pay period calendar — in one
+ *  transaction. The caller becomes its owner, and their active workspace
+ *  switches to it, so the caller should reload afterwards. */
+export function useCreateWorkspace() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (args: {
+      name: string
+      slug: string
+      currency: string
+      timezone: string
+      cadence: PayPeriodCadence
+    }) => {
+      const { data, error } = await supabase.rpc('create_workspace', {
+        p_name: args.name,
+        p_slug: args.slug,
+        p_currency: args.currency,
+        p_timezone: args.timezone,
+        p_cadence: args.cadence,
+      })
+      if (error) throw new Error(error.message)
+      return data as string
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['my-workspaces'] })
+      toast.success('Workspace created', 'Switching you into it now.')
+    },
+    onError: (err: Error) => toast.error("Couldn't create the workspace", err.message),
   })
 }

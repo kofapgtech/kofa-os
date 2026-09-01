@@ -12,6 +12,18 @@ export type ProjectStatus = 'planning' | 'active' | 'on_hold' | 'completed' | 'a
 export type TaskStatus = 'todo' | 'in_progress' | 'blocked' | 'in_review' | 'done'
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent'
 export type TimeSource = 'timer' | 'manual'
+export type TimesheetWeekStatus =
+  | 'draft'
+  | 'pending_lead'
+  | 'pending_md'
+  | 'approved'
+  | 'rejected'
+export type TimesheetDecision =
+  | 'lead_approve'
+  | 'md_approve'
+  | 'reject'
+  | 'resubmit'
+  | 'reopen'
 export type DeliverableStage =
   | 'draft'
   | 'internal_review'
@@ -20,6 +32,7 @@ export type DeliverableStage =
   | 'revisions_requested'
 export type ReviewDecision = 'submit' | 'approve' | 'request_changes' | 'reopen'
 export type MonthlyBudgetStatus = 'draft' | 'approved'
+export type PayPeriodCadence = 'weekly' | 'biweekly' | 'semi_monthly' | 'monthly'
 export type NotificationType =
   | 'task_assigned'
   | 'deliverable_review'
@@ -29,6 +42,8 @@ export type NotificationType =
   | 'time_extension_requested'
   | 'time_extension_decided'
   | 'department_task_assigned'
+  | 'timesheet_submitted'
+  | 'timesheet_decided'
 
 /** A company-wide team (Studio, Tech/Tools, PPC, ...). Doubles as the org
  *  chart grouping for employees (Profile.department_id), the team a task
@@ -54,9 +69,21 @@ export interface DepartmentLead {
   created_at: string
 }
 
+/** A person's membership of ONE workspace. Since the identity/membership split
+ *  a human can hold several of these, so the row is keyed on `membership_id`
+ *  and the person is `user_id` (= auth.users.id = app_users.id).
+ *
+ *  There is deliberately no `id` field: every actor column in the schema
+ *  (assignee_id, owner_id, user_id, profile_id, created_by…) stores the
+ *  *person*, so `user_id` is almost always what you want, and dropping `id`
+ *  turns any stale usage into a compile error rather than a silent mismatch. */
 export interface Profile {
-  id: string
+  membership_id: string
+  user_id: string
   org_id: string
+  /** Owner of this workspace: settings, ownership transfer, and later billing.
+   *  A flag rather than a user_role value — check it, don't infer it from role. */
+  is_owner: boolean
   department_id: string | null
   full_name: string
   email: string
@@ -74,6 +101,8 @@ export interface Profile {
   rehire_eligible: boolean | null
 }
 
+/** Keyed on (profile_id, org_id) — rates are per workspace, so the same
+ *  contractor can be paid differently by two agencies on the platform. */
 export interface ProfileRate {
   profile_id: string
   org_id: string
@@ -93,6 +122,11 @@ export interface Account {
   primary_contact_email: string | null
   status: AccountStatus
   owner_id: string | null
+  /** The workspace's own account, for internal work rather than a client's.
+   *  Exactly one per org, enforced by a partial unique index. It can't be
+   *  deleted, can't be flipped after insert, and can't be issued a client
+   *  portal link — and only its projects may go untracked (see Project). */
+  is_internal: boolean
 }
 
 export interface Project {
@@ -107,9 +141,13 @@ export interface Project {
   /** How many months this project runs — replaces a fixed due date. The
    *  monthly budget split (project_monthly_budgets) has exactly this many
    *  rows, one per month starting at start_date (or the project's creation
-   *  month if start_date is unset). */
-  length_months: number
-  budget_amount: number
+   *  month if start_date is unset). Null means open-ended — only allowed on
+   *  the internal account. */
+  length_months: number | null
+  /** Null means no budget is tracked — only allowed on the internal account.
+   *  Zero still means a tracked budget that happens to be zero, so the two
+   *  are not interchangeable. */
+  budget_amount: number | null
   default_billable: boolean
 }
 
@@ -149,7 +187,8 @@ export interface WorkstreamBudget {
 }
 
 /** v_workstream_budget: a workstream's monthly allocation plus what's
- *  already committed against it via task_hour_allocations (hours × bill_rate). */
+ *  already committed against it via task_hour_allocations (hours × cost_rate
+ *  — what people are actually paid, never the client bill rate). */
 export interface WorkstreamBudgetRow {
   id: string
   org_id: string
@@ -185,7 +224,8 @@ export interface WorkstreamBudgetRequest {
  *  for one budget month. Separate from TaskAssignee (pure "who's on this
  *  task" membership) so a still-open task can carry remaining hours into
  *  the next month as a new row, without touching who's assigned. Cost
- *  against the workstream's budget = hours × that contractor's bill_rate. */
+ *  against the workstream's budget = hours × that contractor's cost_rate
+ *  (pay rate, not the client bill rate). */
 export interface TaskHourAllocation {
   id: string
   org_id: string
@@ -244,6 +284,61 @@ export interface TimeEntry {
   description: string | null
   is_billable: boolean
   source: TimeSource
+}
+
+/** One contractor x one week x one workstream — the unit the approval chain
+ *  moves through. Created and auto-submitted by ensure_timesheet_weeks();
+ *  every state change after that goes through decide_timesheet_week(), so
+ *  there is deliberately no way to write this table from the client.
+ *
+ *  `department_id` is null for time logged with no task by someone with no
+ *  workstream of their own — those weeks fall to the MD to approve. */
+export interface TimesheetWeek {
+  id: string
+  org_id: string
+  user_id: string
+  /** Monday of the week, in UTC — the same basis as time_entry_costs.entry_date. */
+  week_start: string
+  department_id: string | null
+  status: TimesheetWeekStatus
+  submitted_at: string | null
+  lead_approved_by: string | null
+  lead_approved_at: string | null
+  md_approved_by: string | null
+  md_approved_at: string | null
+  rejected_by: string | null
+  rejected_at: string | null
+  rejection_comment: string | null
+  /** Set once every day of the week sits inside a pay period this person has
+   *  been paid for. A week straddling two periods waits for both. */
+  paid_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** v_timesheet_weeks — the week plus the names and totals every queue needs.
+ *  cost_amount comes from time_entry_costs, which is RLS'd to people with
+ *  financial access, so a contractor reading their own row sees 0 there. */
+export interface TimesheetWeekRow extends TimesheetWeek {
+  user_name: string | null
+  department_name: string | null
+  department_color: string | null
+  total_minutes: number
+  entry_count: number
+  cost_amount: number
+  lead_approved_by_name: string | null
+  md_approved_by_name: string | null
+  rejected_by_name: string | null
+}
+
+export interface TimesheetWeekReview {
+  id: string
+  org_id: string
+  timesheet_week_id: string
+  actor_id: string | null
+  decision: TimesheetDecision
+  comment: string | null
+  created_at: string
 }
 
 export interface Deliverable {
@@ -350,10 +445,13 @@ export interface ProjectBudget {
   code: string | null
   status: ProjectStatus
   start_date: string | null
-  length_months: number
+  /** Null on an untracked (internal) project — see Project.length_months. */
+  length_months: number | null
   /** Computed from start_date + length_months — display only, not editable. */
   target_end_date: string | null
-  budget_amount: number
+  /** Null on an untracked (internal) project, which also drives pct_amount,
+   *  remaining_amount and projected_amount to null in the view. */
+  budget_amount: number | null
   total_hours: number
   billable_hours: number
   accrued_amount: number | null
@@ -481,4 +579,48 @@ export interface PayrollLineItem {
   name: string
   hours: number
   amount: number
+}
+
+/** One workspace the signed-in person can switch into (public.my_workspaces()). */
+export interface WorkspaceMembership {
+  org_id: string
+  name: string
+  slug: string
+  role: UserRole
+  /** True for the workspace this session is currently in — NOT the membership's
+   *  own is_active flag, which means "not deactivated". */
+  is_current: boolean
+}
+
+/** A workspace, as the settings page edits it. `slug` is not editable in the
+ *  UI: it is the workspace's address and changing it would break saved links. */
+export interface Organization {
+  id: string
+  name: string
+  slug: string
+  logo_url: string | null
+  brand_color: string
+  timezone: string
+  /** ISO 4217. Applied to every money() call — see setWorkspaceCurrency. */
+  currency: string
+  /** 1 = Monday, 0 = Sunday. */
+  week_start: number
+  /** Drives ensure_pay_periods(). Changing it only adds future periods;
+   *  existing ones, closed or paid, are never rewritten. */
+  pay_period_cadence: PayPeriodCadence
+  default_capacity_hours: number
+  /** 'pending_deletion' after delete_workspace() — hidden from switchers,
+   *  current_org_id() skips it. A future purge job hard-deletes past a
+   *  grace period; nothing purges it today. */
+  status: 'active' | 'pending_deletion'
+  deleted_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** An email domain that can sign in to a workspace without an invite. */
+export interface OrgEmailDomain {
+  domain: string
+  org_id: string
+  created_at: string
 }

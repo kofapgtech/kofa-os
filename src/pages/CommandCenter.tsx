@@ -58,8 +58,12 @@ export function CommandCenter() {
   })
 
   const atRisk = active.filter((p) => (p.pct_amount ?? 0) >= 90)
-  const totalBudget = active.reduce((s, p) => s + p.budget_amount, 0)
-  const totalAccrued = active.reduce((s, p) => s + (p.accrued_amount ?? 0), 0)
+  // Untracked (internal) projects have no budget, so they leave the total rather
+  // than adding zero to it and quietly dragging the consumed percentage down.
+  const trackedActive = active.filter((p) => p.budget_amount !== null)
+  const untrackedCount = active.length - trackedActive.length
+  const totalBudget = trackedActive.reduce((s, p) => s + (p.budget_amount ?? 0), 0)
+  const totalAccrued = trackedActive.reduce((s, p) => s + (p.accrued_amount ?? 0), 0)
   const inReview = deliverables.filter(
     (d) => d.stage === 'internal_review' || d.stage === 'client_review',
   )
@@ -96,7 +100,7 @@ export function CommandCenter() {
   if (!isLeadership) return <Navigate to="/" replace />
   if (isLoading) return <Spinner />
 
-  const nameOf = (id: string | null) => people.find((p) => p.id === id)?.full_name ?? '—'
+  const nameOf = (id: string | null) => people.find((p) => p.user_id === id)?.full_name ?? '—'
 
   return (
     <div>
@@ -109,7 +113,11 @@ export function CommandCenter() {
         <StatCard
           label="Active budget"
           value={money(totalBudget)}
-          sub={`${money(totalAccrued)} consumed · ${Math.round((totalAccrued / (totalBudget || 1)) * 100)}%`}
+          sub={`${money(totalAccrued)} consumed · ${Math.round(
+            (totalAccrued / (totalBudget || 1)) * 100,
+          )}% · ${trackedActive.length} tracked${
+            untrackedCount ? ` · ${untrackedCount} internal excluded` : ''
+          }`}
           icon={<Wallet size={16} />}
         />
         <StatCard
@@ -212,10 +220,16 @@ export function CommandCenter() {
                     <span className="block text-xs text-ink-500">{p.account_name}</span>
                   </td>
                   <td className="td">
-                    {p.length_months} {p.length_months === 1 ? 'mo' : 'mos'}
+                    {p.length_months === null
+                      ? 'Open-ended'
+                      : `${p.length_months} ${p.length_months === 1 ? 'mo' : 'mos'}`}
                   </td>
                   <td className="td">
-                    <BurnBar percent={p.pct_amount} showLabel={false} />
+                    {p.budget_amount === null ? (
+                      <span className="chip bg-brand-100 text-brand-700">Internal</span>
+                    ) : (
+                      <BurnBar percent={p.pct_amount} showLabel={false} />
+                    )}
                   </td>
                   <td className="td text-right tabular-nums">{money(p.accrued_amount)}</td>
                   <td className="td text-right tabular-nums">{money(p.budget_amount)}</td>

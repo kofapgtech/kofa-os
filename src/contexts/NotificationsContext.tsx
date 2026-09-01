@@ -15,12 +15,17 @@ interface NotificationsContextValue {
 const NotificationsContext = createContext<NotificationsContextValue | undefined>(undefined)
 
 export function NotificationsProvider({ children }: { children: ReactNode }) {
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
   const toast = useToast()
   const [items, setItems] = useState<AppNotification[]>([])
 
+  // orgId is part of the identity of this feed, not just a filter: the same
+  // person can hold memberships in several workspaces, and a notification
+  // raised in one must never surface while they're working in another.
+  const orgId = profile?.org_id ?? null
+
   useEffect(() => {
-    if (!user) {
+    if (!user || !orgId) {
       setItems([])
       return
     }
@@ -41,7 +46,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     // into the shared toast stack (see ToastContext), so it appears
     // alongside — not competing with — action-feedback toasts.
     const channel = supabase
-      .channel('notifications-feed')
+      .channel(`notifications-feed:${user.id}:${orgId}`)
       .on(
         'postgres_changes',
         {
@@ -52,6 +57,9 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         },
         (payload) => {
           const row = payload.new as AppNotification
+          // Realtime takes a single filter, so the workspace check happens
+          // here. RLS already scopes the initial load server-side.
+          if (row.org_id !== orgId) return
           setItems((prev) => [row, ...prev])
           toast.push({
             variant: 'info',
@@ -69,7 +77,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       void supabase.removeChannel(channel)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user])
+  }, [user, orgId])
 
   async function markRead(id: string) {
     const now = new Date().toISOString()

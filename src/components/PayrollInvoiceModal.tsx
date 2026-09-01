@@ -2,8 +2,8 @@ import { useMemo } from 'react'
 import { CheckCircle2, Printer, X } from 'lucide-react'
 import { groupPayrollEntries, usePayEmployee } from '@/lib/queries'
 import { Modal, SortableTh, Spinner, sortRows, useTableSort } from '@/components/ui'
-import { hours, longDate, money } from '@/lib/format'
-import type { PayrollEntry, PayrollPayment } from '@/lib/types'
+import { TIMESHEET_STATUS_LABEL, hours, longDate, money, weekRange } from '@/lib/format'
+import type { PayrollEntry, PayrollPayment, TimesheetWeekRow } from '@/lib/types'
 
 /**
  * One period's line items grouped either by project (an employee's invoice,
@@ -19,6 +19,7 @@ export function PayrollInvoiceModal({
   name,
   entries,
   existingPayment,
+  blockedWeeks = [],
   groupBy = 'project',
   isLoading = false,
   onClose,
@@ -29,6 +30,10 @@ export function PayrollInvoiceModal({
   name: string
   entries: PayrollEntry[]
   existingPayment?: PayrollPayment | null
+  /** Weeks of this person's time inside the period that haven't cleared the
+   *  workstream lead + managing director yet. Non-empty means payment is
+   *  blocked — record_payroll_payment() refuses it server-side too. */
+  blockedWeeks?: TimesheetWeekRow[]
   /** 'project' = employee invoice (rows are projects, with a pay action).
    *  'profile' = project drill-down (rows are employees, read-only). */
   groupBy?: 'project' | 'profile'
@@ -113,6 +118,20 @@ export function PayrollInvoiceModal({
             <span className="chip bg-cream-200 text-ink-600">
               Available once this period ends ({longDate(period.period_end)})
             </span>
+          ) : rows.length > 0 && periodId && profileId && blockedWeeks.length > 0 ? (
+            <div className="w-full rounded-lg bg-amber-50 p-3 text-left">
+              <p className="text-sm font-medium text-amber-900">
+                Not approved yet — this time can't be paid.
+              </p>
+              <ul className="mt-1.5 space-y-0.5 text-xs text-amber-800">
+                {blockedWeeks.map((w) => (
+                  <li key={w.id}>
+                    {weekRange(w.week_start)} · {w.department_name ?? 'No workstream'} —{' '}
+                    {TIMESHEET_STATUS_LABEL[w.status].toLowerCase()}
+                  </li>
+                ))}
+              </ul>
+            </div>
           ) : (
             rows.length > 0 &&
             periodId &&

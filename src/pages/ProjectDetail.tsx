@@ -102,11 +102,17 @@ export function ProjectDetail() {
   if (isLoading) return <Spinner />
   if (!budget) return <EmptyState title="Project not found." />
 
+  // An untracked project (internal account, no budget) has no monthly split to
+  // plan, so the Budget tab goes away entirely rather than rendering an empty
+  // planner. A deep link to ?tab=budget falls back to Tasks.
+  const isUntracked = budget.budget_amount === null
+  const activeTab: Tab = isUntracked && tab === 'budget' ? 'tasks' : tab
+
   const tabs: [Tab, string, number | null][] = [
     ['tasks', 'Tasks', tasks.filter((t) => t.status !== 'done').length],
     ['time', 'Time', entries.length],
     ['deliverables', 'Deliverables', deliverables.length],
-    ['budget', 'Budget', null],
+    ...(isUntracked ? [] : ([['budget', 'Budget', null]] as [Tab, string, number | null][])),
   ]
 
   return (
@@ -119,13 +125,23 @@ export function ProjectDetail() {
         title={budget.name}
         subtitle={
           <>
-            {budget.account_name} · {budget.start_date ? longDate(budget.start_date) : '—'} →{' '}
-            {budget.target_end_date ? longDate(budget.target_end_date) : '—'} · {budget.length_months}{' '}
-            {budget.length_months === 1 ? 'month' : 'months'}
+            {budget.account_name} · {budget.start_date ? longDate(budget.start_date) : '—'}
+            {budget.length_months === null ? (
+              ' · open-ended'
+            ) : (
+              <>
+                {' → '}
+                {budget.target_end_date ? longDate(budget.target_end_date) : '—'} · {budget.length_months}{' '}
+                {budget.length_months === 1 ? 'month' : 'months'}
+              </>
+            )}
           </>
         }
         actions={
           <div className="flex items-center gap-1.5">
+            {budget.budget_amount === null && (
+              <span className="chip bg-brand-100 text-brand-700">Internal · no budget</span>
+            )}
             <span className={`chip ${PROJECT_STATUS_CLASS[budget.status]}`}>
               {PROJECT_STATUS_LABEL[budget.status]}
             </span>
@@ -144,49 +160,76 @@ export function ProjectDetail() {
       />
       {editingProject && <EditProjectModal project={budget} onClose={() => setEditingProject(false)} />}
 
-      <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          label="Hours logged"
-          value={hours(budget.total_hours)}
-          sub={`${hours(budget.billable_hours)} billable`}
-        />
-        <StatCard
-          label="Spend to date"
-          value={money(budget.accrued_amount)}
-          sub={hasFinancialAccess ? `of ${money(budget.budget_amount)} budget` : 'Restricted'}
-          icon={hasFinancialAccess ? undefined : <Lock size={14} />}
-        />
-        <StatCard
-          label="Remaining"
-          value={money(budget.remaining_amount)}
-          tone={
-            budget.remaining_amount !== null && budget.remaining_amount < 0
-              ? 'text-rose-600'
-              : 'text-ink-900'
-          }
-          sub={budget.margin_pct !== null ? `${budget.margin_pct}% margin` : 'Restricted'}
-        />
-        <StatCard
-          label="Projected at this burn"
-          value={money(budget.projected_amount)}
-          tone={
-            budget.projected_amount !== null && budget.projected_amount > budget.budget_amount * 1.05
-              ? 'text-rose-600'
-              : 'text-ink-900'
-          }
-          sub={
-            budget.projected_amount === null
-              ? 'Restricted'
-              : budget.projected_amount > budget.budget_amount * 1.05
-                ? `${money(budget.projected_amount - budget.budget_amount)} over budget`
-                : 'On track'
-          }
-        />
-      </div>
+      {isUntracked ? (
+        /* No budget to burn against, so the money panel becomes what actually
+           means something internally: hours in, and what those hours cost. */
+        <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <StatCard
+            label="Hours logged"
+            value={hours(budget.total_hours)}
+            sub={`${hours(budget.billable_hours)} billable`}
+          />
+          <StatCard
+            label="Internal cost"
+            value={hasFinancialAccess ? money(budget.accrued_cost) : '—'}
+            sub={hasFinancialAccess ? 'Hours × pay rate' : 'Restricted'}
+            icon={hasFinancialAccess ? undefined : <Lock size={14} />}
+          />
+          <StatCard
+            label="Open tasks"
+            value={String(tasks.filter((t) => t.status !== 'done').length)}
+            sub={`of ${tasks.length}`}
+          />
+        </div>
+      ) : (
+        <>
+          <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <StatCard
+              label="Hours logged"
+              value={hours(budget.total_hours)}
+              sub={`${hours(budget.billable_hours)} billable`}
+            />
+            <StatCard
+              label="Spend to date"
+              value={money(budget.accrued_amount)}
+              sub={hasFinancialAccess ? `of ${money(budget.budget_amount)} budget` : 'Restricted'}
+              icon={hasFinancialAccess ? undefined : <Lock size={14} />}
+            />
+            <StatCard
+              label="Remaining"
+              value={money(budget.remaining_amount)}
+              tone={
+                budget.remaining_amount !== null && budget.remaining_amount < 0
+                  ? 'text-rose-600'
+                  : 'text-ink-900'
+              }
+              sub={budget.margin_pct !== null ? `${budget.margin_pct}% margin` : 'Restricted'}
+            />
+            <StatCard
+              label="Projected at this burn"
+              value={money(budget.projected_amount)}
+              tone={
+                budget.projected_amount !== null &&
+                budget.budget_amount !== null &&
+                budget.projected_amount > budget.budget_amount * 1.05
+                  ? 'text-rose-600'
+                  : 'text-ink-900'
+              }
+              sub={
+                budget.projected_amount === null || budget.budget_amount === null
+                  ? 'Restricted'
+                  : budget.projected_amount > budget.budget_amount * 1.05
+                    ? `${money(budget.projected_amount - budget.budget_amount)} over budget`
+                    : 'On track'
+              }
+            />
+          </div>
 
-      <div className="mb-5 card p-4">
-        <BurnBar percent={budget.pct_amount} />
-      </div>
+          <div className="mb-5 card p-4">
+            <BurnBar percent={budget.pct_amount} />
+          </div>
+        </>
+      )}
 
       <div className="mb-4 flex gap-1 border-b border-cream-300">
         {tabs.map(([key, label, count]) => (
@@ -194,7 +237,7 @@ export function ProjectDetail() {
             key={key}
             onClick={() => setTab(key)}
             className={`-mb-px border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
-              tab === key
+              activeTab === key
                 ? 'border-brand-600 text-brand-700'
                 : 'border-transparent text-ink-500 hover:text-ink-800'
             }`}
@@ -205,7 +248,7 @@ export function ProjectDetail() {
         ))}
       </div>
 
-      {tab === 'tasks' && (
+      {activeTab === 'tasks' && (
         <TaskViews
           tasks={tasks}
           people={people}
@@ -214,8 +257,8 @@ export function ProjectDetail() {
           openTaskId={openTaskId}
         />
       )}
-      {tab === 'time' && <TimeTab entries={entries} people={people} tasks={tasks} />}
-      {tab === 'deliverables' && (
+      {activeTab === 'time' && <TimeTab entries={entries} people={people} tasks={tasks} />}
+      {activeTab === 'deliverables' && (
         <DeliverablesTab
           deliverables={deliverables}
           people={people}
@@ -224,7 +267,7 @@ export function ProjectDetail() {
           openDeliverableId={openDeliverableId}
         />
       )}
-      {tab === 'budget' && <BudgetTab projectId={projectId!} highlightRequestId={highlightRequestId} />}
+      {activeTab === 'budget' && <BudgetTab projectId={projectId!} highlightRequestId={highlightRequestId} />}
     </div>
   )
 }
@@ -240,7 +283,7 @@ function TimeTab({
   people: import('@/lib/types').Profile[]
   tasks: import('@/lib/types').Task[]
 }) {
-  const nameOf = (id: string) => people.find((p) => p.id === id)?.full_name ?? 'Unknown'
+  const nameOf = (id: string) => people.find((p) => p.user_id === id)?.full_name ?? 'Unknown'
   const taskOf = (id: string | null) => tasks.find((t) => t.id === id)?.title ?? '—'
   const sort = useTableSort<'date' | 'person' | 'task' | 'note' | 'billable' | 'hours'>()
 
@@ -399,7 +442,7 @@ function BudgetTab({
     entries.forEach((e) => map.set(e.user_id, (map.get(e.user_id) ?? 0) + minutesToHours(e.duration_minutes)))
     return [...map.entries()]
       .map(([id, h]) => ({
-        name: people.find((p) => p.id === id)?.full_name.split(' ')[0] ?? 'Unknown',
+        name: people.find((p) => p.user_id === id)?.full_name.split(' ')[0] ?? 'Unknown',
         hours: Math.round(h * 10) / 10,
       }))
       .sort((a, b) => b.hours - a.hours)
@@ -499,6 +542,12 @@ function MonthlyBudgetPlanner({ projectId, budget }: { projectId: string; budget
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [expanded, setExpanded] = useState<string | null>(null)
 
+  // Both are nullable on an untracked (internal) project, but the Budget tab
+  // isn't rendered for one at all — see isUntracked in ProjectDetail. Narrowing
+  // here keeps the arithmetic below honest without threading a guard through it.
+  const totalBudget = budget.budget_amount ?? 0
+  const plannedLength = budget.length_months ?? 0
+
   const byMonth = useMemo(() => new Map(monthRows.map((r) => [r.month, r])), [monthRows])
   const currentMonthCutoff = new Date().toISOString().slice(0, 7) + '-01'
   const isPastMonth = (m: string) => m < currentMonthCutoff
@@ -507,7 +556,7 @@ function MonthlyBudgetPlanner({ projectId, budget }: { projectId: string; budget
     const list: string[] = []
     if (budget.start_date) {
       const base = budget.start_date.slice(0, 7) + '-01'
-      for (let i = 0; i < budget.length_months; i++) list.push(addMonths(base, i))
+      for (let i = 0; i < plannedLength; i++) list.push(addMonths(base, i))
     }
     const inWindow = new Set(list)
     monthRows.forEach((r) => {
@@ -520,7 +569,7 @@ function MonthlyBudgetPlanner({ projectId, budget }: { projectId: string; budget
       }
     })
     return list.sort()
-  }, [budget.start_date, budget.length_months, monthRows])
+  }, [budget.start_date, plannedLength, monthRows])
 
   const draftMonths = plannedMonths.filter((m) => byMonth.get(m)?.status !== 'approved')
   const approvedTotal = monthRows
@@ -554,7 +603,7 @@ function MonthlyBudgetPlanner({ projectId, budget }: { projectId: string; budget
     const pastDraftTotal = draftMonths
       .filter((m) => isPastMonth(m))
       .reduce((s, m) => s + (Number(drafts[m]) || 0), 0)
-    const remaining = budget.budget_amount - approvedTotal - pastDraftTotal
+    const remaining = totalBudget - approvedTotal - pastDraftTotal
     const n = futureDraftMonths.length
     if (n === 0) return
     const base = Math.floor((remaining / n) * 100) / 100
@@ -567,7 +616,7 @@ function MonthlyBudgetPlanner({ projectId, budget }: { projectId: string; budget
 
   const draftTotal = draftMonths.reduce((s, m) => s + (Number(drafts[m]) || 0), 0)
   const grandTotal = approvedTotal + draftTotal
-  const diff = Math.round((budget.budget_amount - grandTotal) * 100) / 100
+  const diff = Math.round((totalBudget - grandTotal) * 100) / 100
 
   function save() {
     const entries = draftMonths
@@ -581,7 +630,7 @@ function MonthlyBudgetPlanner({ projectId, budget }: { projectId: string; budget
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm font-semibold text-ink-900">Monthly budget</p>
         <p className={`text-xs font-medium ${diff === 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
-          {money(grandTotal)} of {money(budget.budget_amount)} planned
+          {money(grandTotal)} of {money(totalBudget)} planned
           {diff !== 0 && ` · ${diff > 0 ? `${money(diff)} unallocated` : `${money(-diff)} over`}`}
         </p>
       </div>

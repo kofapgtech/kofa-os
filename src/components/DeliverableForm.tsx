@@ -86,7 +86,7 @@ export function DeliverableFormFields({
           >
             <option value="">Unassigned</option>
             {people.map((p) => (
-              <option key={p.id} value={p.id}>
+              <option key={p.user_id} value={p.user_id}>
                 {p.full_name}
               </option>
             ))}
@@ -101,7 +101,7 @@ export function DeliverableFormFields({
           >
             <option value="">Unassigned</option>
             {people.map((p) => (
-              <option key={p.id} value={p.id}>
+              <option key={p.user_id} value={p.user_id}>
                 {p.full_name}
               </option>
             ))}
@@ -146,7 +146,7 @@ export function NewDeliverableModal({
   // deliverable until a lead stepped in to assign it.
   const [values, setValues] = useState<DeliverableFormValues>({
     ...EMPTY_DELIVERABLE_FORM,
-    ownerId: profile?.id ?? '',
+    ownerId: profile?.user_id ?? '',
   })
   const [error, setError] = useState<string | null>(null)
 
