@@ -13,18 +13,21 @@ import {
   X,
 } from 'lucide-react'
 import type { Deliverable, DeliverableAttachment, DeliverableStage, Profile } from '@/lib/types'
-import { STAGE_CLASS, STAGE_LABEL, longDate, relativeTime, shortDate } from '@/lib/format'
+import { STAGE_CLASS, STAGE_LABEL, longDate, money, relativeTime, shortDate } from '@/lib/format'
 import {
+  useAcceptDeliverable,
   useAddDeliverableAttachment,
   useAddDeliverableComment,
   useDeleteDeliverable,
   useDeleteDeliverableAttachment,
   useDeleteDeliverableComment,
   useDeliverableAttachments,
+  useDeliverableFeeAllocations,
   useDeliverableReviews,
   useDeliverableComments,
   useTasks,
   useTransitionDeliverable,
+  useUnacceptDeliverable,
   useUpdateDeliverable,
 } from '@/lib/queries'
 import { useAuth } from '@/contexts/AuthContext'
@@ -69,6 +72,16 @@ export function DeliverablePanel({
   const { profile, isLeadership } = useAuth()
   const { data: reviews = [], isLoading } = useDeliverableReviews(deliverable.id)
   const { data: tasks = [] } = useTasks(deliverable.project_id)
+  // Only a deliverable attached to a deliverable-tracked task carries money.
+  // On a time-tracked task (or none at all) the stage board is the whole story
+  // and none of the payment UI below should appear.
+  const linkedTask = tasks.find((t) => t.id === deliverable.task_id)
+  const isPaidByFee = linkedTask?.tracking_mode === 'deliverable'
+  const { data: feeAllocations = [] } = useDeliverableFeeAllocations(
+    isPaidByFee ? deliverable.id : undefined,
+  )
+  const accept = useAcceptDeliverable()
+  const unaccept = useUnacceptDeliverable()
   const { data: comments = [], isLoading: commentsLoading } = useDeliverableComments(deliverable.id)
   const transition = useTransitionDeliverable()
   const update = useUpdateDeliverable()
@@ -282,9 +295,16 @@ export function DeliverablePanel({
                     {projectName} · v{deliverable.version} · due {shortDate(deliverable.due_date)}
                   </p>
                 </div>
-                <span className={`chip shrink-0 ${STAGE_CLASS[deliverable.stage]}`}>
-                  {STAGE_LABEL[deliverable.stage]}
-                </span>
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  <span className={`chip ${STAGE_CLASS[deliverable.stage]}`}>
+                    {STAGE_LABEL[deliverable.stage]}
+                  </span>
+                  {isPaidByFee && deliverable.accepted_at && (
+                    <span className="chip bg-emerald-100 text-emerald-800">
+                      <Check size={11} /> Fee released
+                    </span>
+                  )}
+                </div>
               </div>
 
               {deliverable.description && (
@@ -401,6 +421,76 @@ export function DeliverablePanel({
             {uploading && <p className="mt-2 text-xs text-ink-500">Uploading…</p>}
             {attachError && <p className="mt-2 text-xs text-rose-600">{attachError}</p>}
           </div>
+
+          {/* Payment ---------------------------------------------------
+              Deliberately separate from the stage board above. The stages are
+              the client-facing review flow; acceptance is the money event that
+              makes this deliverable's fee earned and payable, and it is the
+              workstream lead's call regardless of where the stage board sits. */}
+          {isPaidByFee && (
+            <div className="mt-4 rounded-xl border border-cream-300 p-4">
+              <p className="mb-1 text-sm font-semibold text-ink-900">Payment</p>
+              <p className="mb-3 text-xs text-ink-500">
+                {deliverable.accepted_at
+                  ? `Accepted ${relativeTime(deliverable.accepted_at)} — the fee is on its way through payroll.`
+                  : 'Paid as a flat fee once a workstream lead accepts it. Hours logged against this task earn nothing.'}
+              </p>
+
+              {feeAllocations.length === 0 ? (
+                <p className="text-sm text-ink-500">
+                  No fee set yet — a lead sets it on the task, under Deliverables.
+                </p>
+              ) : (
+                <div className="space-y-1.5">
+                  {feeAllocations.map((f) => (
+                    <div
+                      key={f.id}
+                      className="flex items-center justify-between gap-2 rounded-lg border border-cream-200 px-2.5 py-1.5"
+                    >
+                      <span className="flex items-center gap-2 text-sm text-ink-800">
+                        <Avatar name={nameOf(f.profile_id)} size={20} />
+                        {nameOf(f.profile_id)}
+                      </span>
+                      <span className="tabular-nums text-sm font-semibold">{money(Number(f.amount))}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {isLeadership && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {deliverable.accepted_at ? (
+                    <button
+                      className="btn-ghost"
+                      disabled={unaccept.isPending}
+                      onClick={() => unaccept.mutate({ id: deliverable.id })}
+                    >
+                      <RotateCcw size={15} /> Withdraw acceptance
+                    </button>
+                  ) : (
+                    <button
+                      className="btn-primary"
+                      disabled={
+                        feeAllocations.length === 0 ||
+                        accept.isPending ||
+                        feeAllocations.some((f) => f.profile_id === profile?.user_id)
+                      }
+                      title={
+                        feeAllocations.length === 0
+                          ? 'Set the fee on the task first'
+                          : feeAllocations.some((f) => f.profile_id === profile?.user_id)
+                            ? 'You are being paid for this one — another lead has to accept it'
+                            : undefined
+                      }
+                      onClick={() => accept.mutate({ id: deliverable.id })}
+                    >
+                      <Check size={15} /> Accept &amp; release fee
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Actions --------------------------------------------------- */}
           <div className="mt-4 rounded-xl border border-cream-300 p-4">

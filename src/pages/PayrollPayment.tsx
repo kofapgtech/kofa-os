@@ -47,6 +47,13 @@ export function PayrollPayment() {
   const byEmployee = useMemo(() => groupPayrollEntries(entries, 'profile'), [entries])
   const byProject = useMemo(() => groupPayrollEntries(entries, 'project'), [entries])
   const periodTotal = useMemo(() => byEmployee.reduce((sum, row) => sum + row.amount, 0), [byEmployee])
+  // Deliverable-tracked work owes a flat fee rather than hours, so it lands in
+  // these totals with zero hours against it. Calling it out stops the by-hours
+  // columns from looking like they've lost money they never had.
+  const feeTotal = useMemo(
+    () => entries.filter((e) => e.kind === 'fee').reduce((sum, e) => sum + e.amount, 0),
+    [entries],
+  )
 
   const employeeSort = useTableSort<'name' | 'hours' | 'amount'>()
   const sortedByEmployee = sortRows(byEmployee, employeeSort.sortKey, employeeSort.sortDir, (row, key) => row[key])
@@ -63,7 +70,7 @@ export function PayrollPayment() {
 
   return (
     <div>
-      <PageHeader title="Payment" subtitle="Review a pay period's hours and billable spend, by employee and by project." />
+      <PageHeader title="Payment" subtitle="Review a pay period's hours, deliverable fees and billable spend, by employee and by project." />
 
       {periods.length === 0 ? (
         <EmptyState title="No pay periods yet." />
@@ -96,6 +103,9 @@ export function PayrollPayment() {
                 <p className="mb-3 text-sm text-ink-600">
                   <span className="font-semibold text-ink-900">{money(periodTotal)}</span> total across{' '}
                   {byEmployee.length} employee{byEmployee.length === 1 ? '' : 's'} this period
+                  {feeTotal > 0 && (
+                    <> · includes {money(feeTotal)} in accepted deliverable fees, which carry no hours</>
+                  )}
                 </p>
               )}
               <div className="grid gap-4 lg:grid-cols-2">

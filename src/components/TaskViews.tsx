@@ -16,7 +16,7 @@ import {
   Plus,
   X,
 } from 'lucide-react'
-import type { Profile, Task, TaskHourAllocation, TaskStatus } from '@/lib/types'
+import type { Profile, Task, TaskHourAllocation, TaskStatus, TaskTrackingMode } from '@/lib/types'
 import {
   PRIORITY_CLASS,
   PRIORITY_OPTION_CLASS,
@@ -47,6 +47,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext'
 import { useTimer } from '@/contexts/TimerContext'
 import { Avatar, Chip, EmptyState, SortableTh, Spinner, sortRows, useTableSort } from './ui'
+import { TaskDeliverablesSection } from './TaskDeliverables'
 
 export type TaskViewMode = 'list' | 'board' | 'calendar'
 
@@ -1016,7 +1017,11 @@ function TaskPanel({
       <div className="mt-3">
         <label className="label">Assignees</label>
         {assigneeIds.length === 0 ? (
-          <p className="text-sm text-ink-500">Nobody yet — add an hour allocation below to assign someone.</p>
+          <p className="text-sm text-ink-500">
+            {draft.tracking_mode === 'deliverable'
+              ? 'Nobody yet — give someone a share of a deliverable fee below to assign them.'
+              : 'Nobody yet — add an hour allocation below to assign someone.'}
+          </p>
         ) : (
           <div className="flex flex-wrap gap-1.5">
             {assigneeIds.map((id) => (
@@ -1028,7 +1033,35 @@ function TaskPanel({
         )}
       </div>
 
-      <HourAllocationsSection task={draft} people={people} locked={done} />
+      <div className="mt-3">
+        <label className="label">Tracking</label>
+        <div className="grid grid-cols-2 gap-2">
+          {(['time', 'deliverable'] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              disabled={done}
+              onClick={() => mode !== draft.tracking_mode && patch({ tracking_mode: mode })}
+              className={`rounded-lg border px-2.5 py-2 text-left text-xs transition ${
+                draft.tracking_mode === mode
+                  ? 'border-brand-500 bg-brand-50 text-ink-900'
+                  : 'border-cream-300 text-ink-600 hover:bg-cream-100'
+              } ${done ? 'cursor-not-allowed opacity-60' : ''}`}
+            >
+              <span className="block font-semibold">{mode === 'time' ? 'By time' : 'By deliverable'}</span>
+              <span className="block text-ink-500">
+                {mode === 'time' ? 'Paid for hours logged' : 'Paid a fee per accepted deliverable'}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {draft.tracking_mode === 'deliverable' ? (
+        <TaskDeliverablesSection task={draft} people={people} locked={done} />
+      ) : (
+        <HourAllocationsSection task={draft} people={people} locked={done} />
+      )}
 
       <div className="mt-4">
         <label className="label">Description</label>
@@ -1052,6 +1085,12 @@ function TaskPanel({
             <span className="font-normal text-ink-400"> of {task.estimated_hours ?? '—'}h est.</span>
           </span>
         </div>
+        {draft.tracking_mode === 'deliverable' && (
+          <p className="mt-1 text-xs text-ink-500">
+            Tracked for effort only — this task is paid per deliverable, so these hours cost nothing and are never
+            billed.
+          </p>
+        )}
         <button
           className="btn-primary mt-3 w-full"
           disabled={!!running || done}
@@ -1601,6 +1640,7 @@ function NewTaskPanel({
   const [estimate, setEstimate] = useState('')
   const [priority, setPriority] = useState<Task['priority']>('medium')
   const [note, setNote] = useState('')
+  const [trackingMode, setTrackingMode] = useState<TaskTrackingMode>('time')
 
   return (
     <Drawer title={parentTaskId ? 'New subtask' : 'New task'} onClose={onClose}>
@@ -1618,8 +1658,32 @@ function NewTaskPanel({
         <div>
           <DepartmentSelect value={departmentId} onChange={(id) => setDepartmentId(id)} />
           <p className="mt-1 text-xs text-ink-500">
-            Assign people once the task exists, via hour allocations in the workstream's budget.
+            {trackingMode === 'deliverable'
+              ? "Assign people once the task exists, by splitting each deliverable's fee between them."
+              : "Assign people once the task exists, via hour allocations in the workstream's budget."}
           </p>
+        </div>
+        <div>
+          <label className="label">Tracking</label>
+          <div className="grid grid-cols-2 gap-2">
+            {(['time', 'deliverable'] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setTrackingMode(mode)}
+                className={`rounded-lg border px-2.5 py-2 text-left text-xs transition ${
+                  trackingMode === mode
+                    ? 'border-brand-500 bg-brand-50 text-ink-900'
+                    : 'border-cream-300 text-ink-600 hover:bg-cream-100'
+                }`}
+              >
+                <span className="block font-semibold">{mode === 'time' ? 'By time' : 'By deliverable'}</span>
+                <span className="block text-ink-500">
+                  {mode === 'time' ? 'Paid for hours logged' : 'Paid a fee per accepted deliverable'}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -1674,6 +1738,7 @@ function NewTaskPanel({
               department_id: departmentId,
               due_date: due || null,
               estimated_hours: estimate ? Number(estimate) : null,
+              tracking_mode: trackingMode,
               priority,
               created_by: profile!.user_id,
               parent_task_id: parentTaskId ?? null,

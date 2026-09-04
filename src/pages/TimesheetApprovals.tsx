@@ -182,7 +182,9 @@ function WeekTable({
   showMoney: boolean
   onOpen: (id: string) => void
 }) {
-  const sort = useTableSort<'user_name' | 'week_start' | 'department_name' | 'total_minutes' | 'cost_amount'>(
+  const sort = useTableSort<
+    'user_name' | 'week_start' | 'department_name' | 'total_minutes' | 'cost_amount' | 'fee_amount'
+  >(
     'week_start',
     'desc',
   )
@@ -205,6 +207,13 @@ function WeekTable({
                   <SortableTh
                     label="Hours"
                     sortKey="total_minutes"
+                    sort={sort}
+                    align="right"
+                    className="text-right"
+                  />
+                  <SortableTh
+                    label="Fees"
+                    sortKey="fee_amount"
                     sort={sort}
                     align="right"
                     className="text-right"
@@ -233,6 +242,9 @@ function WeekTable({
                     <td className="td text-ink-600">{w.department_name ?? 'No workstream'}</td>
                     <td className="td text-right tabular-nums">
                       {minutesToHours(w.total_minutes).toFixed(2)}
+                    </td>
+                    <td className="td text-right tabular-nums">
+                      {w.fee_amount > 0 ? money(w.fee_amount) : <span className="text-ink-400">—</span>}
                     </td>
                     {showMoney && (
                       <td className="td text-right tabular-nums">{money(w.cost_amount)}</td>
@@ -309,6 +321,14 @@ function WeekReviewModal({
         <span className="font-semibold text-ink-900">
           {minutesToHours(week.total_minutes).toFixed(2)}h
         </span>
+        {week.fee_count > 0 && (
+          <>
+            <span className="text-ink-300">·</span>
+            <span className="font-semibold text-brand-600">
+              {money(week.fee_amount)} in deliverable fees
+            </span>
+          </>
+        )}
         {showMoney && (
           <>
             <span className="text-ink-300">·</span>

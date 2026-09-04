@@ -10,6 +10,11 @@ export type PayPeriodStatus = 'open' | 'locked' | 'paid'
 export type AccountStatus = 'active' | 'prospect' | 'paused' | 'closed'
 export type ProjectStatus = 'planning' | 'active' | 'on_hold' | 'completed' | 'archived'
 export type TaskStatus = 'todo' | 'in_progress' | 'blocked' | 'in_review' | 'done'
+/** How a task's work turns into money. 'time' is the original model —
+ *  hours x cost_rate, committed via task_hour_allocations. 'deliverable' pays
+ *  a flat fee per accepted deliverable via deliverable_fee_allocations, and
+ *  time logged on such a task earns nothing (it is kept for utilisation only). */
+export type TaskTrackingMode = 'time' | 'deliverable'
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent'
 export type TimeSource = 'timer' | 'manual'
 export type TimesheetWeekStatus =
@@ -257,6 +262,9 @@ export interface Task {
   assignee_id: string | null
   due_date: string | null
   estimated_hours: number | null
+  /** Time-tracked (hours) or deliverable-tracked (flat fee per deliverable).
+   *  Defaults to 'time' — every task that existed before this feature is one. */
+  tracking_mode: TaskTrackingMode
   position: number
   created_by: string | null
   completed_at: string | null
@@ -329,6 +337,10 @@ export interface TimesheetWeekRow extends TimesheetWeek {
   lead_approved_by_name: string | null
   md_approved_by_name: string | null
   rejected_by_name: string | null
+  /** Deliverable fees accepted in this week — deliberately NOT folded into
+   *  cost_amount, so an approver sees hours and fees as two separate numbers. */
+  fee_amount: number
+  fee_count: number
 }
 
 export interface TimesheetWeekReview {
@@ -354,7 +366,47 @@ export interface Deliverable {
   due_date: string | null
   version: number
   approved_at: string | null
+  /** The workstream lead's acceptance — the money event, deliberately separate
+   *  from `stage`/`approved_at`, which track the client-facing review board.
+   *  Set only by accept_deliverable(); this is what makes the deliverable's fee
+   *  allocations earned and payable. */
+  accepted_at: string | null
+  accepted_by: string | null
   created_at: string
+}
+
+/** One person's share of one deliverable's fee, in one budget month. The
+ *  deliverable-side twin of TaskHourAllocation: it commits against the same
+ *  workstream monthly budget the moment it is allocated, and becomes payable
+ *  once the deliverable is accepted. Writable by a lead/admin only. */
+export interface DeliverableFeeAllocation {
+  id: string
+  org_id: string
+  deliverable_id: string
+  profile_id: string
+  department_id: string
+  budget_month: string
+  amount: number
+  created_by: string | null
+  created_at: string
+}
+
+/** v_deliverable_fee_weeks: an earned (accepted) fee mapped onto the timesheet
+ *  week it becomes payable in, plus the project and deliverable it came from.
+ *  `earned_date` is the acceptance date, not the due date or budget month. */
+export interface DeliverableFeeWeek {
+  allocation_id: string
+  org_id: string
+  user_id: string
+  department_id: string
+  budget_month: string
+  amount: number
+  week_start: string
+  earned_date: string
+  deliverable_id: string
+  deliverable_title: string
+  project_id: string
+  project_name: string | null
 }
 
 /** One file or link attached to a deliverable - a deliverable can have any
@@ -571,6 +623,9 @@ export interface PayrollEntry {
   project_name: string
   hours: number
   amount: number
+  /** 'hours' = logged time x cost rate. 'fee' = an accepted deliverable's fee,
+   *  which carries no hours. Both are owed for the period and sum together. */
+  kind: 'hours' | 'fee'
 }
 
 /** A grouped row (by employee, or by project) with summed hours/amount. */
