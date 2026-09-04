@@ -1,0 +1,16 @@
+-- Phase 3C — pay periods follow the workspace's cadence. APPLIED 2026-08-31.
+--
+-- ensure_pay_periods() hardcoded semi-monthly (1st–15th, 16th–EOM), which is
+-- Kofa's cadence and nobody else's. Now reads organizations.pay_period_cadence
+-- and honours weekly / biweekly / semi_monthly / monthly, with week_start
+-- deciding whether weekly periods begin Monday or Sunday.
+--
+-- SAFETY: the function only ever INSERTs, always `on conflict do nothing`.
+-- Changing cadence adds the new shape going forward and never rewrites or
+-- deletes an existing period — closed and paid periods are untouchable here.
+--
+-- Verified live: Kofa PG (semi_monthly) has 31 periods; Meridian Studio
+-- (biweekly) got 33 from the same call.
+--
+-- Full statement text in Supabase migration history, version 20260831041015.
+-- PRD: docs/PRD-Workspaces.md section 5

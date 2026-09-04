@@ -25,3 +25,6 @@ dist-ssr
 
 # Supabase CLI local cache
 supabase/.temp/
+
+_to_delete
+docs

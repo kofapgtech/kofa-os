@@ -1,0 +1,22 @@
+-- Phase 3B — creating a workspace. APPLIED 2026-08-31.
+--
+-- create_workspace(name, slug, currency, timezone, cadence) does the whole
+-- thing in one transaction: the organizations row, the caller's owner
+-- membership, active_workspace, six default workstreams, the INTERNAL ACCOUNT
+-- (Phase 1 — this is why that work was not throwaway) and the pay period
+-- calendar in the workspace's own cadence.
+--
+-- GATED TO PLATFORM STAFF. The user's call: build and exercise the machinery,
+-- but leave production's front door shut while Kofa's payroll data lives here.
+-- Opening it to self-serve later is a one-line change to the is_platform_admin()
+-- guard plus the auth trigger.
+--
+-- platform_admins is a TABLE, not a role. RLS on, ZERO policies — unreachable
+-- from the client, managed by service role only. It grants nothing by itself:
+-- no RLS policy references it, and only create_workspace() consults it.
+--
+-- Also: transfer_workspace_ownership(user_id) — owner-only, atomic, and the
+-- only path that can move profiles.is_owner.
+--
+-- Full statement text in Supabase migration history, version 20260831040948.
+-- PRD: docs/PRD-Workspaces.md section 5

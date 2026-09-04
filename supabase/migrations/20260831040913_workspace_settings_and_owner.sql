@@ -1,0 +1,20 @@
+-- Phase 3A — workspace settings and the owner. APPLIED 2026-08-31.
+--
+-- organizations gains: logo_url, brand_color, timezone, currency, week_start,
+-- pay_period_cadence, default_capacity_hours, updated_at. Two of those are
+-- load-bearing rather than cosmetic — currency (format.ts hardcoded USD) and
+-- pay_period_cadence (ensure_pay_periods hardcoded semi-monthly). Without them
+-- a non-Kofa workspace cannot run payroll or show correct money.
+--
+-- OWNER IS A FLAG, NOT A ROLE. profiles.is_owner + partial unique index
+-- (one per org). Chosen over adding 'owner' to the user_role enum because it
+-- touches nothing that already switches on role. The tradeoff: `role` is no
+-- longer the single answer to what someone can do, so owner-only powers are
+-- checked with is_workspace_owner() and never by reading role.
+--
+-- The flag cannot be moved by a direct UPDATE — profiles_guard_owner_flag
+-- rejects it unless the transaction-local kofa.owner_transfer flag is set,
+-- which only transfer_workspace_ownership() does.
+--
+-- Full statement text in Supabase migration history, version 20260831040913.
+-- PRD: docs/PRD-Workspaces.md section 5

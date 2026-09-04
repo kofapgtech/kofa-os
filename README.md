@@ -34,7 +34,6 @@ Six live roles today, plus one attribute that isn't a role at all:
 
 | Role | Can do | Cannot do |
 |---|---|---|
-| `admin` | Everything | — |
 | `executive` | Everything `admin` can, via `is_admin_or_executive()` (accounts, projects, rates, work streams, deleting things, issuing client links) | **Invite an employee** — the one capability deliberately withheld; enforced both in RLS and again in the `invite-employee` Edge Function's `ALLOWED_CALLER_ROLES`, not just hidden in the UI |
 | `dept_lead` | Everything `staff` can, plus reviewing deliverables and seeing money (`is_lead_or_admin()`) | Reach the Admin page; invite; set rates |
 | `billing_finance` | Read every rate/cost/budget figure (`has_financial_access()`); review pay periods and mark them paid | Any operational write — can't edit an account, a project, or someone else's time entry |
