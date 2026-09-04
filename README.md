@@ -24,20 +24,19 @@ Password for all seeded accounts: `KofaDemo2026!`
 |---|---|---|---|
 | Jared Lewis | `jared@kofapg.com` | admin | Everything: rates, margin, Command Centre, full Admin page |
 | Jordan Ellis | `jordan@kofapg.com` | executive | Everything admin sees **except** the ability to invite an employee |
-| Priya Shah | `priya.hr@kofapg.com` | hr_manager | The roster (invite/edit staff & dept_lead only) — no money, no accounts write access |
-| Marcus Cole | `marcus.f@kofapg.com` | billing_finance | Every rate/budget number, plus the Payroll page — no operational writes |
+| Priya Shah | `priya.hr@kofapg.com` | hr_manager | The roster (invite/edit staff & dept_lead only), plus every rate/budget number and the Payroll page — no operational writes |
 | — dept_lead / staff — | see `profiles` table | dept_lead / staff | Their department's work; staff never see rates or margin |
 
 ## Roles
 
-Six live roles today, plus one attribute that isn't a role at all:
+Five live roles today, plus one attribute that isn't a role at all:
 
 | Role | Can do | Cannot do |
 |---|---|---|
-| `executive` | Everything `admin` can, via `is_admin_or_executive()` (accounts, projects, rates, work streams, deleting things, issuing client links) | **Invite an employee** — the one capability deliberately withheld; enforced both in RLS and again in the `invite-employee` Edge Function's `ALLOWED_CALLER_ROLES`, not just hidden in the UI |
+| `admin` | Everything | — |
+| `executive` | Everything `admin` can, via `is_admin_or_executive()` (accounts, projects, rates, work streams, deleting things, issuing client links), including full workstream management (`can_manage_workstreams()`) | **Invite an employee** — the one capability deliberately withheld; enforced both in RLS and again in the `invite-employee` Edge Function's `ALLOWED_CALLER_ROLES`, not just hidden in the UI |
 | `dept_lead` | Everything `staff` can, plus reviewing deliverables and seeing money (`is_lead_or_admin()`) | Reach the Admin page; invite; set rates |
-| `billing_finance` | Read every rate/cost/budget figure (`has_financial_access()`); review pay periods and mark them paid | Any operational write — can't edit an account, a project, or someone else's time entry |
-| `hr_manager` | Invite and edit **non-privileged** profiles only (`staff`/`dept_lead`) — enforced by a same-shape guard in both the `profiles_update` RLS policy and the invite Edge Function | See rates, budgets, or margin anywhere; touch an `admin`/`executive`/`billing_finance`/`hr_manager` profile, including their own |
+| `hr_manager` ("HR") | Invite and edit **non-privileged** profiles only (`staff`/`dept_lead`) — enforced by a same-shape guard in both the `profiles_update` RLS policy and the invite Edge Function; read every rate/cost/budget figure (`has_financial_access()`), review pay periods and mark them paid; **and** manage workstreams (`can_manage_workstreams()`) — create, rename, delete, set leads, move members | Any other operational write — can't edit an account, a project, or someone else's time entry; touch an `admin`/`executive`/`hr_manager` profile, including their own |
 | `staff` | Their own tasks, time, and deliverables they own | Rates, margin, anyone else's write access |
 
 `employment_type` (`employee` \| `contractor`) on `profiles` is **not a role** — it's a
@@ -58,7 +57,23 @@ self-approval is blocked the same way deliverable self-approval is. Approving bu
 `tasks.estimated_hours` atomically; nothing enforces that a *direct* edit to that column
 goes through the request flow — it's a recommended channel, not a locked one.
 
-### Payroll (`billing_finance` / `admin`)
+### Workstreams (`admin` / `executive` / `hr_manager`)
+
+`can_manage_workstreams()` is the single gate: it backs the `departments`
+insert/update/delete policies, the `department_leads` write/delete policies, and the
+`delete_workstream()` RPC, and `canManageWorkstreams` in `AuthContext` mirrors it for the
+nav link and the page guard. Deleting goes through the RPC rather than a raw delete —
+`tasks`, `workstream_budgets`, `workstream_budget_requests`, `timesheet_weeks` and
+`task_hour_allocations` all reference a workstream with a RESTRICT foreign key, so the RPC
+refuses with a readable count of what's in the way, and clears `profiles.department_id`
+(which has no FK) before deleting so nobody is left pointing at a workstream that's gone.
+
+**HR's one gap:** moving someone's *primary* workstream writes `profiles.department_id`,
+which still runs through the `profiles_update` escalation guard — so HR can move a
+`staff`/`dept_lead` person but not an `admin`/`executive`. The additional-membership path
+(`workstream_members`) has no such limit, so HR can still staff anyone onto any workstream.
+
+### Payroll (`hr_manager` / `admin`)
 
 `pay_periods` is a minimal review-and-mark-paid slice: `open → locked → paid`, the last
 transition via `mark_pay_period_paid()`. It does **not** enforce that a locked/paid
@@ -108,7 +123,7 @@ Not "hidden in the UI" — enforced in Postgres:
 - **HR can't self-promote.** The `profiles_update` policy's `hr_manager` branch checks
   the role on *both* sides of the update (`USING` against the old row, `WITH CHECK`
   against the new one) — an HR account can edit a `staff`/`dept_lead` profile, but can
-  neither touch nor create an `admin`/`executive`/`billing_finance`/`hr_manager` row,
+  neither touch nor create an `admin`/`executive`/`hr_manager` row,
   including its own. The same boundary is re-checked server-side in the
   `invite-employee` Edge Function, since that call runs on the service role and bypasses
   RLS entirely.

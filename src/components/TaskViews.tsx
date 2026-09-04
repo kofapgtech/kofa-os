@@ -43,6 +43,7 @@ import {
   useTaskTimeRequests,
   useUpdateTask,
   useWorkstreamBudgets,
+  useWorkstreamMembers,
 } from '@/lib/queries'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTimer } from '@/contexts/TimerContext'
@@ -1199,6 +1200,7 @@ function HourAllocationsSection({
 
   const [month, setMonth] = useState(currentMonthStart)
   const { data: workstreamBudgets = [] } = useWorkstreamBudgets(task.project_id, month)
+  const { data: workstreamMemberRows = [] } = useWorkstreamMembers()
   const wb = workstreamBudgets.find((w) => w.department_id === task.department_id)
 
   // budget_amount lives on `projects`, not on the money-gated cost tables, so
@@ -1228,7 +1230,16 @@ function HourAllocationsSection({
   // Allocating hours to someone is now the only way to put them on this task
   // (see the task_hour_allocations_sync_assignee DB trigger), so the pool to
   // choose from is this workstream's members, not the task's current assignees.
-  const workstreamMembers = people.filter((p) => p.department_id === task.department_id)
+  // "Member" is home department_id OR an explicit workstream_members row -
+  // a contractor/employee staffed on an additional workstream (see
+  // AdminEmployees' "Additional workstreams" picker) is eligible here too,
+  // not just on their primary one.
+  const additionalMemberIds = new Set(
+    workstreamMemberRows.filter((m) => m.department_id === task.department_id).map((m) => m.profile_id),
+  )
+  const workstreamMembers = people.filter(
+    (p) => p.department_id === task.department_id || additionalMemberIds.has(p.user_id),
+  )
 
   if (!task.department_id) {
     return (

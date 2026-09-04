@@ -6,6 +6,7 @@ import {
   FileCheck2,
   Gauge,
   Landmark,
+  LifeBuoy,
   ListChecks,
   LogOut,
   Menu,
@@ -32,7 +33,15 @@ import { Logo } from './Logo'
 import { NotificationBell } from './NotificationBell'
 import { Avatar } from './ui'
 
-type NavGate = 'leadership' | 'payroll' | 'admin' | 'admin-full' | 'timesheet-approvals' | null
+type NavGate =
+  | 'leadership'
+  | 'payroll'
+  | 'admin'
+  | 'admin-full'
+  | 'workstreams'
+  | 'timesheet-approvals'
+  | 'non-contractor'
+  | null
 
 interface NavItem {
   to: string
@@ -57,7 +66,7 @@ const NAV: NavItem[] = [
       { to: '/timesheet/approvals', label: 'Approvals', gate: 'timesheet-approvals' },
     ],
   },
-  { to: '/accounts', label: 'Accounts', icon: Building2 },
+  { to: '/accounts', label: 'Accounts', icon: Building2, gate: 'non-contractor' },
   {
     to: '/payroll',
     label: 'Payroll',
@@ -75,7 +84,7 @@ const NAV: NavItem[] = [
     gate: 'admin',
     children: [
       { to: '/admin/employees', label: 'Employees' },
-      { to: '/admin/workstreams', label: 'Workstreams', gate: 'admin-full' },
+      { to: '/admin/workstreams', label: 'Workstreams', gate: 'workstreams' },
     ],
   },
 ]
@@ -297,8 +306,18 @@ function CreateWorkspaceModal({ onClose }: { onClose: () => void }) {
 }
 
 export function AppShell() {
-  const { profile, signOut, isLeadership, isAdmin, isAdminOrExecutive, isExecutive, isHR, isPayrollAdmin } =
-    useAuth()
+  const {
+    profile,
+    signOut,
+    isLeadership,
+    isAdmin,
+    isAdminOrExecutive,
+    isExecutive,
+    isHR,
+    isPayrollAdmin,
+    isContractor,
+    canManageWorkstreams,
+  } = useAuth()
   const navigate = useNavigate()
   const [mobileNav, setMobileNav] = useState(false)
 
@@ -316,7 +335,8 @@ export function AppShell() {
 
   // "Admin" covers three audiences now: full admin/executive access, or
   // HR's narrower roster-only slice of the same section (see
-  // AdminEmployees.tsx). Departments is admin/executive only.
+  // AdminEmployees.tsx). Workstreams is its own gate again — admin,
+  // executive and HR all manage the org chart.
   const canReachAdmin = isAdmin || isExecutive || isHR
 
   function passesGate(gate: NavGate) {
@@ -324,9 +344,15 @@ export function AppShell() {
     if (gate === 'payroll') return isPayrollAdmin
     if (gate === 'admin') return canReachAdmin
     if (gate === 'admin-full') return isAdminOrExecutive
+    if (gate === 'workstreams') return canManageWorkstreams
     // Leads confirm their workstream's hours, the MD clears them, finance
     // needs to see where a week has got to before it can pay it.
     if (gate === 'timesheet-approvals') return isLeadership || isPayrollAdmin
+    // Accounts is the client-commercial view of the workspace. Contractors are
+    // staffed onto projects, not onto the client relationship, so they don't
+    // see it — whatever role they hold. The route is closed to match
+    // (see App.tsx), so this isn't only a hidden link.
+    if (gate === 'non-contractor') return !isContractor
     return true
   }
 
@@ -382,6 +408,38 @@ export function AppShell() {
     </nav>
   )
 
+  /** Pinned to the bottom of the sidebar rather than sitting in NAV, because
+   *  it is the one thing on this screen everyone in the company needs and it
+   *  should not drift down the list as sections are added. Admins get the
+   *  queue; everyone else gets the form and their own history. */
+  const ticketCta = isAdmin ? (
+    <NavLink
+      to="/tickets/manage"
+      onClick={() => setMobileNav(false)}
+      className={({ isActive }) =>
+        `flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors ${
+          isActive ? 'bg-brand-700 text-white' : 'bg-brand-600 text-white hover:bg-brand-700'
+        }`
+      }
+    >
+      <LifeBuoy size={17} />
+      Manage tickets
+    </NavLink>
+  ) : (
+    <NavLink
+      to="/tickets"
+      onClick={() => setMobileNav(false)}
+      className={({ isActive }) =>
+        `flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors ${
+          isActive ? 'bg-brand-700 text-white' : 'bg-brand-600 text-white hover:bg-brand-700'
+        }`
+      }
+    >
+      <LifeBuoy size={17} />
+      Submit a ticket
+    </NavLink>
+  )
+
   return (
     <div className="min-h-screen bg-cream-100">
       {/* Forest-green bar, mirroring the kofapg.com nav. */}
@@ -424,20 +482,25 @@ export function AppShell() {
       {/* Full width: the sidebar hugs the left edge so it lines up with the
           header, which has never been width-capped. */}
       <div className="flex">
-        <aside className="hidden w-60 shrink-0 border-r border-cream-300 bg-white p-3 lg:block min-h-[calc(100vh-4rem)]">
-          {nav}
+        {/* Static: pinned under the 4rem header and scrolling in its own right,
+            so the nav (and the ticket button at its foot) stay put however far
+            the page behind them scrolls. */}
+        <aside className="sticky top-16 hidden h-[calc(100vh-4rem)] w-60 shrink-0 flex-col border-r border-cream-300 bg-white p-3 lg:flex">
+          <div className="min-h-0 flex-1 overflow-y-auto">{nav}</div>
+          <div className="mt-3 shrink-0 border-t border-cream-300 pt-3">{ticketCta}</div>
         </aside>
 
         {mobileNav && (
           <div className="fixed inset-0 z-40 lg:hidden">
             <div className="absolute inset-0 bg-brand-800/40" onClick={() => setMobileNav(false)} />
-            <div className="absolute left-0 top-0 h-full w-64 bg-white p-3">
+            <div className="absolute left-0 top-0 flex h-full w-64 flex-col bg-white p-3">
               <div className="mb-3 flex justify-end">
                 <button className="btn-ghost !px-2.5" onClick={() => setMobileNav(false)}>
                   <X size={18} />
                 </button>
               </div>
-              {nav}
+              <div className="min-h-0 flex-1 overflow-y-auto">{nav}</div>
+              <div className="mt-3 shrink-0 border-t border-cream-300 pt-3">{ticketCta}</div>
             </div>
           </div>
         )}

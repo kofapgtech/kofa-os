@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Lock, Pencil, Plus } from 'lucide-react'
 import {
   Area,
@@ -27,6 +27,7 @@ import {
   useTasks,
   useTimeEntries,
   useUnapproveMonthlyBudget,
+  useVisibleProjectIds,
   useWorkstreamBudgetRequests,
   useWorkstreamBudgets,
 } from '@/lib/queries'
@@ -99,7 +100,16 @@ export function ProjectDetail() {
   const { data: entries = [] } = useTimeEntries({ projectId })
   const { data: deliverables = [] } = useDeliverables(projectId)
 
-  if (isLoading) return <Spinner />
+  // A contractor only gets the projects they hold a task on. The Projects
+  // grid is already filtered, so this closes the direct-URL route into one
+  // they aren't on — a stale bookmark, or a link pasted by a teammate.
+  // Waiting out isLoading matters: acting on an unresolved scope would bounce
+  // them off a project they're entitled to.
+  const scope = useVisibleProjectIds()
+  const outOfScope = scope.scoped && !scope.isLoading && !!scope.ids && !scope.ids.has(projectId ?? '')
+
+  if (isLoading || scope.isLoading) return <Spinner />
+  if (outOfScope) return <Navigate to="/projects" replace />
   if (!budget) return <EmptyState title="Project not found." />
 
   // An untracked project (internal account, no budget) has no monthly split to

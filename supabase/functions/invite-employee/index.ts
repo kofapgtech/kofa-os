@@ -44,7 +44,7 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-const ALL_ROLES = ['admin', 'executive', 'dept_lead', 'billing_finance', 'hr_manager', 'staff']
+const ALL_ROLES = ['admin', 'executive', 'dept_lead', 'hr_manager', 'staff']
 const ALLOWED_CALLER_ROLES = ['admin', 'hr_manager']
 // What an hr_manager caller may assign - never a privileged tier, and never
 // themselves out of it. Admin callers are unrestricted (any ALL_ROLES value).

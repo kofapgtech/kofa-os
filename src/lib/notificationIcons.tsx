@@ -4,6 +4,7 @@ import {
   CircleDollarSign,
   FileCheck2,
   Hourglass,
+  LifeBuoy,
   ListChecks,
 } from 'lucide-react'
 import type { NotificationType } from './types'
@@ -17,5 +18,6 @@ export function iconForNotification(type: NotificationType) {
     return <Hourglass size={16} className="text-accent-700" />
   if (type === 'timesheet_submitted' || type === 'timesheet_decided')
     return <CalendarCheck size={16} className="text-sky-700" />
+  if (type.startsWith('ticket_')) return <LifeBuoy size={16} className="text-accent-700" />
   return <FileCheck2 size={16} className="text-brand-600" />
 }

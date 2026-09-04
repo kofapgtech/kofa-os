@@ -5,7 +5,7 @@ import { NotificationsProvider } from '@/contexts/NotificationsContext'
 import { TimerProvider } from '@/contexts/TimerContext'
 import { ToastProvider } from '@/contexts/ToastContext'
 import { AppShell } from '@/components/AppShell'
-import { ProtectedRoute } from '@/components/ProtectedRoute'
+import { NonContractorRoute, ProtectedRoute } from '@/components/ProtectedRoute'
 import { Login } from '@/pages/Login'
 import { MyWork } from '@/pages/MyWork'
 import { CommandCenter } from '@/pages/CommandCenter'
@@ -23,6 +23,8 @@ import { NotificationsPage } from '@/pages/NotificationsPage'
 import { ProfilePage } from '@/pages/Profile'
 import { WorkspaceSettings } from '@/pages/WorkspaceSettings'
 import { Portal } from '@/pages/Portal'
+import { Tickets } from '@/pages/Tickets'
+import { ManageTickets } from '@/pages/ManageTickets'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -59,13 +61,22 @@ export default function App() {
               <Route path="/deliverables" element={<Deliverables />} />
               <Route path="/timesheet" element={<Timesheet />} />
               <Route path="/timesheet/approvals" element={<TimesheetApprovals />} />
-              <Route path="/accounts" element={<Accounts />} />
+              <Route
+                path="/accounts"
+                element={
+                  <NonContractorRoute>
+                    <Accounts />
+                  </NonContractorRoute>
+                }
+              />
               <Route path="/admin" element={<Navigate to="/admin/employees" replace />} />
               <Route path="/admin/employees" element={<AdminEmployees />} />
               <Route path="/admin/workstreams" element={<AdminDepartments />} />
               <Route path="/payroll" element={<Navigate to="/payroll/payment" replace />} />
               <Route path="/payroll/payment" element={<PayrollPayment />} />
               <Route path="/payroll/records" element={<PayrollRecords />} />
+              <Route path="/tickets" element={<Tickets />} />
+              <Route path="/tickets/manage" element={<ManageTickets />} />
               <Route path="/notifications" element={<NotificationsPage />} />
               <Route path="/profile" element={<ProfilePage />} />
               <Route path="/settings" element={<WorkspaceSettings />} />

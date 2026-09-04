@@ -37,3 +37,17 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
 
   return <>{children}</>
 }
+
+/** Closes a route to contractors. Pairs with the 'non-contractor' nav gate in
+ *  AppShell: hiding the link alone would still leave the page one typed URL
+ *  away, so the route sends them home instead of rendering it.
+ *
+ *  A redirect rather than a "no access" panel, deliberately — the point is
+ *  that the section isn't part of a contractor's app at all, and an explainer
+ *  screen would advertise the very thing being hidden. Access that a person
+ *  could reasonably ask to be granted (payroll, admin) keeps the panel. */
+export function NonContractorRoute({ children }: { children: ReactNode }) {
+  const { isContractor } = useAuth()
+  if (isContractor) return <Navigate to="/" replace />
+  return <>{children}</>
+}

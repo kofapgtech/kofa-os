@@ -5,6 +5,9 @@ import type {
   ProjectStatus,
   TaskPriority,
   TaskStatus,
+  TicketCategory,
+  TicketPriority,
+  TicketStatus,
   TimesheetWeekStatus,
   UserRole,
 } from './types'
@@ -250,7 +253,6 @@ export const ROLE_LABEL: Record<UserRole, string> = {
   admin: 'Admin',
   executive: 'Executive',
   dept_lead: 'Department lead',
-  billing_finance: 'Billing/Finance',
   hr_manager: 'HR',
   staff: 'Staff',
 }
@@ -272,4 +274,66 @@ export function burnTone(percent: number | null | undefined): {
   if (value >= 90) return { bar: 'bg-orange-500', text: 'text-orange-800', label: 'Critical' }
   if (value >= 75) return { bar: 'bg-accent-400', text: 'text-accent-700', label: 'Watch' }
   return { bar: 'bg-brand-500', text: 'text-brand-700', label: 'Healthy' }
+}
+
+// ------------------------------------------------------------------ tickets
+
+export const TICKET_STATUS_ORDER: TicketStatus[] = ['open', 'in_progress', 'resolved', 'closed']
+
+export const TICKET_STATUS_LABEL: Record<TicketStatus, string> = {
+  open: 'Open',
+  in_progress: 'In progress',
+  resolved: 'Resolved',
+  closed: 'Closed',
+}
+
+export const TICKET_STATUS_CLASS: Record<TicketStatus, string> = {
+  open: 'bg-sky-100 text-sky-800',
+  in_progress: 'bg-accent-100 text-accent-700',
+  resolved: 'bg-brand-100 text-brand-700',
+  closed: 'bg-cream-200 text-ink-500',
+}
+
+export const TICKET_PRIORITY_ORDER: TicketPriority[] = ['low', 'normal', 'high', 'urgent']
+
+export const TICKET_PRIORITY_LABEL: Record<TicketPriority, string> = {
+  low: 'Low',
+  normal: 'Normal',
+  high: 'High',
+  urgent: 'Urgent',
+}
+
+/** Mirrors PRIORITY_CLASS, but tickets use `normal` where a task uses
+ *  `medium`, so the two maps can't be shared. */
+export const TICKET_PRIORITY_CLASS: Record<TicketPriority, string> = {
+  low: 'bg-cream-200 text-ink-500',
+  normal: 'bg-sky-100 text-sky-800',
+  high: 'bg-orange-100 text-orange-800',
+  urgent: 'bg-rose-100 text-rose-700',
+}
+
+export const TICKET_CATEGORY_ORDER: TicketCategory[] = [
+  'it_support',
+  'access',
+  'hr',
+  'payroll',
+  'facilities',
+  'other',
+]
+
+export const TICKET_CATEGORY_LABEL: Record<TicketCategory, string> = {
+  it_support: 'IT support',
+  access: 'Access & accounts',
+  hr: 'HR',
+  payroll: 'Payroll',
+  facilities: 'Facilities',
+  other: 'Something else',
+}
+
+/** Human file size for an attachment row. */
+export function fileSize(bytes: number | null | undefined): string {
+  if (bytes === null || bytes === undefined) return ''
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }

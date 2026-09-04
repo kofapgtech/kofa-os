@@ -1,33 +1,47 @@
 import { useState, type ReactNode } from 'react'
-import { Building2, Plus, Star, UserMinus, UserPlus, Users2 } from 'lucide-react'
+import { Building2, Pencil, Plus, Star, Trash2, UserMinus, UserPlus, Users2 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   useAddDepartmentLead,
+  useAddWorkstreamMember,
   useAllProfiles,
   useCreateDepartment,
+  useDeleteDepartment,
   useDepartmentLeads,
   useDepartments,
   useRemoveDepartmentLead,
+  useRenameDepartment,
+  useRemoveWorkstreamMember,
   useUpdateProfile,
+  useWorkstreamMembers,
 } from '@/lib/queries'
-import { EmptyState, Modal, ModalHeader, PageHeader, SortableTh, Spinner, sortRows, useTableSort } from '@/components/ui'
+import {
+  ConfirmDialog,
+  EmptyState,
+  Modal,
+  ModalHeader,
+  PageHeader,
+  SortableTh,
+  Spinner,
+  sortRows,
+  useTableSort,
+} from '@/components/ui'
 import type { Department, UserRole } from '@/lib/types'
 
 const ROLE_LABEL: Record<UserRole, string> = {
   admin: 'Admin',
   executive: 'Executive',
   dept_lead: 'Department lead',
-  billing_finance: 'Billing/Finance',
   hr_manager: 'HR',
   staff: 'Staff',
 }
 
 export function AdminDepartments() {
-  const { profile, isAdminOrExecutive } = useAuth()
+  const { profile, canManageWorkstreams } = useAuth()
   const [creating, setCreating] = useState(false)
   const [selected, setSelected] = useState<Department | null>(null)
 
-  if (!isAdminOrExecutive) {
+  if (!canManageWorkstreams) {
     return <EmptyState title="No admin access" hint="Ask an admin for access to this page." />
   }
 
@@ -65,10 +79,25 @@ function DepartmentsCard({ onSelect }: { onSelect: (d: Department) => void }) {
   const { data: departments = [], isLoading } = useDepartments()
   const { data: people = [] } = useAllProfiles()
   const { data: departmentLeads = [] } = useDepartmentLeads()
+  const { data: workstreamMembers = [] } = useWorkstreamMembers()
   const sort = useTableSort<'name' | 'members' | 'lead'>()
+  const [renaming, setRenaming] = useState<Department | null>(null)
+  const [deleting, setDeleting] = useState<Department | null>(null)
+  const removeDept = useDeleteDepartment()
 
   const rows = departments.map((d) => {
-    const members = people.filter((p) => p.department_id === d.id)
+    // A workstream's members are everyone with department_id === d.id (their
+    // primary/home workstream) PLUS anyone explicitly tagged via
+    // workstream_members - that's how a contractor/employee gets staffed on
+    // more than one workstream, since department_id can only ever point at
+    // one. Dedupe in case someone's somehow both.
+    const additionalMemberIds = new Set(
+      workstreamMembers.filter((m) => m.department_id === d.id).map((m) => m.profile_id),
+    )
+    const members = [
+      ...people.filter((p) => p.department_id === d.id),
+      ...people.filter((p) => additionalMemberIds.has(p.user_id)),
+    ].filter((p, i, arr) => arr.findIndex((x) => x.user_id === p.user_id) === i)
     // A workstream's leads are everyone with role='dept_lead' staffed in it
     // (the original, single-workstream-per-person convention), PLUS anyone
     // explicitly tagged via department_leads - that's how an admin/executive
@@ -110,6 +139,7 @@ function DepartmentsCard({ onSelect }: { onSelect: (d: Department) => void }) {
                 <SortableTh label="Name" sortKey="name" sort={sort} thClassName="py-2 pr-3" />
                 <SortableTh label="Members" sortKey="members" sort={sort} thClassName="py-2 pr-3" />
                 <SortableTh label="Lead" sortKey="lead" sort={sort} thClassName="py-2 pr-3" />
+                <th className="py-2 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -125,6 +155,32 @@ function DepartmentsCard({ onSelect }: { onSelect: (d: Department) => void }) {
                     <td className="py-2 pr-3 text-ink-700">
                       {leads.length ? leads.map((l) => l.full_name).join(', ') : '—'}
                     </td>
+                    {/* The row itself opens the members modal, so every control
+                        in here has to stop the click from bubbling up to it. */}
+                    <td className="py-2 text-right whitespace-nowrap">
+                      <button
+                        className="rounded-lg p-1.5 text-ink-500 hover:bg-cream-200 hover:text-ink-900"
+                        title="Rename workstream"
+                        aria-label={`Rename ${d.name}`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setRenaming(d)
+                        }}
+                      >
+                        <Pencil size={15} />
+                      </button>
+                      <button
+                        className="rounded-lg p-1.5 text-ink-500 hover:bg-red-50 hover:text-red-600"
+                        title="Delete workstream"
+                        aria-label={`Delete ${d.name}`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setDeleting(d)
+                        }}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </td>
                   </tr>
                 )
               })}
@@ -132,7 +188,63 @@ function DepartmentsCard({ onSelect }: { onSelect: (d: Department) => void }) {
           </table>
         </div>
       )}
+
+      {renaming && <RenameDepartmentModal department={renaming} onClose={() => setRenaming(null)} />}
+      {deleting && (
+        <ConfirmDialog
+          title={`Delete "${deleting.name}"?`}
+          message="Its members are detached and any additional-lead tags go with it. A workstream that still carries tasks, budgets, budget requests or timesheet weeks can't be deleted — move those first."
+          busy={removeDept.isPending}
+          onConfirm={() =>
+            removeDept.mutate(deleting.id, {
+              onSuccess: () => setDeleting(null),
+              onError: () => setDeleting(null),
+            })
+          }
+          onCancel={() => setDeleting(null)}
+        />
+      )}
     </Section>
+  )
+}
+
+function RenameDepartmentModal({ department, onClose }: { department: Department; onClose: () => void }) {
+  const rename = useRenameDepartment()
+  const [name, setName] = useState(department.name)
+  const trimmed = name.trim()
+
+  async function submit() {
+    await rename.mutateAsync({ id: department.id, name: trimmed })
+    onClose()
+  }
+
+  return (
+    <Modal onClose={onClose}>
+      <ModalHeader
+        title="Rename Workstream"
+        icon={<Building2 size={16} className="text-brand-600" />}
+        onClose={onClose}
+      />
+      <div className="space-y-3">
+        <div>
+          <label className="label">Name</label>
+          <input
+            className="input"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Workstream name"
+            autoFocus
+          />
+        </div>
+        <button
+          className="btn-primary w-full"
+          disabled={!trimmed || trimmed === department.name || rename.isPending}
+          onClick={() => void submit()}
+        >
+          <Pencil size={16} /> Save name
+        </button>
+      </div>
+    </Modal>
   )
 }
 
@@ -172,16 +284,56 @@ function NewDepartmentModal({ orgId, onClose }: { orgId: string; onClose: () => 
 }
 
 function DepartmentMembersModal({ department, onClose }: { department: Department; onClose: () => void }) {
+  const { profile: viewer } = useAuth()
   const { data: people = [], isLoading } = useAllProfiles()
   const { data: departmentLeads = [] } = useDepartmentLeads()
+  const { data: workstreamMembers = [] } = useWorkstreamMembers()
   const update = useUpdateProfile()
   const addLead = useAddDepartmentLead()
   const removeLead = useRemoveDepartmentLead()
+  const addMember = useAddWorkstreamMember()
+  const removeMember = useRemoveWorkstreamMember()
   const [addId, setAddId] = useState('')
   const [addLeadId, setAddLeadId] = useState('')
 
-  const members = people.filter((p) => p.department_id === department.id)
-  const available = people.filter((p) => p.is_active && p.department_id !== department.id)
+  // One list, whether someone is here as their primary Workstream
+  // (department_id) or an additional one (workstream_members) - `isPrimary`
+  // on each row is what the remove/lead actions branch on, not two separate
+  // sections. A person's primary always wins if they're somehow both.
+  const additionalMemberIds = new Set(
+    workstreamMembers.filter((m) => m.department_id === department.id).map((m) => m.profile_id),
+  )
+  const members = [
+    ...people.filter((p) => p.department_id === department.id).map((p) => ({ ...p, isPrimary: true as const })),
+    ...people
+      .filter((p) => additionalMemberIds.has(p.user_id) && p.department_id !== department.id)
+      .map((p) => ({ ...p, isPrimary: false as const })),
+  ]
+  // Adding someone already covers both cases below - excluded here either way.
+  const available = people.filter(
+    (p) => p.is_active && p.department_id !== department.id && !additionalMemberIds.has(p.user_id),
+  )
+
+  function addPerson() {
+    if (!addId) return
+    if (viewer) {
+      const person = people.find((p) => p.user_id === addId)
+      // No primary Workstream yet: this becomes it, same as the original
+      // single "Add a person" behaviour. Already has one elsewhere: add them
+      // here without moving them off it.
+      if (person && !person.department_id) {
+        update.mutate({ id: addId, patch: { department_id: department.id } })
+      } else {
+        addMember.mutate({
+          org_id: department.org_id,
+          department_id: department.id,
+          profile_id: addId,
+          added_by: viewer.user_id,
+        })
+      }
+    }
+    setAddId('')
+  }
 
   // Additional leads: admin/executive/HR profiles explicitly tagged as
   // leading this workstream on top of the department_id+role='dept_lead'
@@ -217,9 +369,11 @@ function DepartmentMembersModal({ department, onClose }: { department: Departmen
           {members.map((m) => {
             const isLead = m.role === 'dept_lead'
             // Promoting to/from "lead" is really just a role change, and role
-            // carries other tiers (admin, billing/finance, HR...) this quick
-            // toggle shouldn't touch — only offer it for staff/dept_lead.
-            const canToggleLead = m.role === 'staff' || isLead
+            // carries other tiers (admin, executive, HR...) this quick
+            // toggle shouldn't touch — only offer it for staff/dept_lead, and
+            // only for a primary member (their role isn't scoped per
+            // Workstream, so it wouldn't mean anything for an additional one).
+            const canToggleLead = m.isPrimary && (m.role === 'staff' || isLead)
             return (
               <li
                 key={m.user_id}
@@ -229,6 +383,7 @@ function DepartmentMembersModal({ department, onClose }: { department: Departmen
                   <p className="truncate font-medium text-ink-900">{m.full_name}</p>
                   <p className="truncate text-xs text-ink-500">
                     {m.email} · {ROLE_LABEL[m.role]}
+                    {!m.isPrimary && ' · Additional'}
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
@@ -248,8 +403,12 @@ function DepartmentMembersModal({ department, onClose }: { department: Departmen
                   <button
                     className="text-ink-400 hover:text-rose-600"
                     title="Remove from Workstream"
-                    disabled={update.isPending}
-                    onClick={() => update.mutate({ id: m.user_id, patch: { department_id: null } })}
+                    disabled={update.isPending || removeMember.isPending}
+                    onClick={() =>
+                      m.isPrimary
+                        ? update.mutate({ id: m.user_id, patch: { department_id: null } })
+                        : removeMember.mutate({ departmentId: department.id, profileId: m.user_id })
+                    }
                   >
                     <UserMinus size={16} />
                   </button>
@@ -271,11 +430,8 @@ function DepartmentMembersModal({ department, onClose }: { department: Departmen
         </select>
         <button
           className="btn-primary shrink-0"
-          disabled={!addId || update.isPending}
-          onClick={() => {
-            update.mutate({ id: addId, patch: { department_id: department.id } })
-            setAddId('')
-          }}
+          disabled={!addId || update.isPending || addMember.isPending}
+          onClick={addPerson}
         >
           <UserPlus size={16} /> Add
         </button>
