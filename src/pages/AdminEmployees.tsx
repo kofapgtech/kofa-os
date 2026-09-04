@@ -1,17 +1,20 @@
 import { useState, type ChangeEvent, type ReactNode } from 'react'
 import { supabase } from '@/lib/supabaseClient'
-import { Check, Paperclip, UserPlus, Users2, X } from 'lucide-react'
+import { Check, ChevronDown, Paperclip, Star, UserMinus, UserPlus, Users2, X } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   useAddEmployeeAttachment,
+  useAddWorkstreamMember,
   useAllProfiles,
   useDeleteEmployeeAttachment,
   useDepartments,
   useEmployeeAttachments,
   useInviteEmployee,
   useProfileRates,
+  useRemoveWorkstreamMember,
   useUpdateCostRate,
   useUpdateProfile,
+  useWorkstreamMembers,
 } from '@/lib/queries'
 import {
   ConfirmDialog,
@@ -26,7 +29,7 @@ import {
 } from '@/components/ui'
 import type { Department, EmployeeAttachment, EmploymentType, Profile, ProfileRate, UserRole } from '@/lib/types'
 
-const ALL_ROLES: UserRole[] = ['staff', 'dept_lead', 'billing_finance', 'hr_manager', 'executive', 'admin']
+const ALL_ROLES: UserRole[] = ['staff', 'dept_lead', 'hr_manager', 'executive', 'admin']
 // What an HR viewer may assign to someone else — never a privileged tier,
 // matching the same guard enforced server-side (RLS + the invite-employee
 // Edge Function). Admin/executive viewers get the full ALL_ROLES list.
@@ -35,7 +38,6 @@ const ROLE_LABEL: Record<UserRole, string> = {
   admin: 'Admin',
   executive: 'Executive',
   dept_lead: 'Department lead',
-  billing_finance: 'Billing/Finance',
   hr_manager: 'HR',
   staff: 'Staff',
 }
@@ -54,7 +56,7 @@ export function AdminEmployees() {
       <PageHeader title="Employees" subtitle="Invite employees and manage the roster." />
       <div className="grid gap-4 xl:grid-cols-2">
         {/* Executive deliberately excluded from inviting - that stays admin/HR
-            only. Only a true admin can invite an admin/executive/billing/HR
+            only. Only a true admin can invite an admin/executive/HR
             peer; HR's invite rights are capped to staff/dept_lead, enforced
             again server-side since this card can't be trusted to be the only
             gate. */}
@@ -93,8 +95,11 @@ function QuickActionsCard({ isAdmin }: { isAdmin: boolean }) {
 }
 
 function InviteEmployeeModal({ isAdmin, onClose }: { isAdmin: boolean; onClose: () => void }) {
+  const { profile: viewer } = useAuth()
   const { data: departments = [] } = useDepartments()
   const invite = useInviteEmployee()
+  const updateRate = useUpdateCostRate()
+  const addWorkstreamMember = useAddWorkstreamMember()
 
   // HR sees the same form, just capped to non-privileged roles - the server
   // (RLS + the Edge Function) enforces this independently either way.
@@ -104,24 +109,64 @@ function InviteEmployeeModal({ isAdmin, onClose }: { isAdmin: boolean; onClose: 
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<UserRole>('staff')
   const [employmentType, setEmploymentType] = useState<EmploymentType>('employee')
-  const [departmentId, setDepartmentId] = useState('')
+  // Workstream is a multiselect: everything checked here gets staffed, and
+  // the one starred as primary becomes their Department (profiles.department_id,
+  // set at creation via the invite Edge Function's auth metadata). Anything
+  // else checked is added right after as a workstream_members row, same as
+  // the "Additional workstreams" list on the employee Details tab.
+  const [workstreamIds, setWorkstreamIds] = useState<string[]>([])
+  const [primaryWorkstreamId, setPrimaryWorkstreamId] = useState('')
+  const [workstreamOpen, setWorkstreamOpen] = useState(false)
   const [title, setTitle] = useState('')
   const [capacity, setCapacity] = useState('40')
+  const [payRate, setPayRate] = useState('')
+
+  function toggleWorkstream(id: string) {
+    setWorkstreamIds((prev) => {
+      if (prev.includes(id)) {
+        const next = prev.filter((x) => x !== id)
+        setPrimaryWorkstreamId((p) => (p === id ? next[0] ?? '' : p))
+        return next
+      }
+      setPrimaryWorkstreamId((p) => p || id)
+      return [...prev, id]
+    })
+  }
 
   async function submit() {
-    await invite.mutateAsync({
+    const result = await invite.mutateAsync({
       full_name: fullName.trim(),
       email: email.trim().toLowerCase(),
       role,
-      department_id: departmentId || null,
+      department_id: primaryWorkstreamId || null,
       title: title.trim() || null,
       capacity_hours_per_week: capacity ? Number(capacity) : 40,
       employment_type: employmentType,
     })
+
+    const followUps: Promise<unknown>[] = [
+      updateRate.mutateAsync({
+        profileId: result.id,
+        orgId: viewer!.org_id,
+        costRate: Number(payRate),
+      }),
+    ]
+    for (const id of workstreamIds) {
+      if (id === primaryWorkstreamId) continue
+      followUps.push(
+        addWorkstreamMember.mutateAsync({
+          org_id: viewer!.org_id,
+          department_id: id,
+          profile_id: result.id,
+          added_by: viewer!.user_id,
+        }),
+      )
+    }
+    await Promise.all(followUps)
     onClose()
   }
 
-  const canSubmit = !!fullName.trim() && !!email.trim()
+  const canSubmit = !!fullName.trim() && !!email.trim() && !!payRate.trim() && !!viewer
 
   return (
     <Modal onClose={onClose}>
@@ -166,16 +211,72 @@ function InviteEmployeeModal({ isAdmin, onClose }: { isAdmin: boolean; onClose: 
               ))}
             </select>
           </div>
-          <div>
-            <label className="label">Department</label>
-            <select className="input" value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
-              <option value="">No department</option>
-              {departments.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
+          <div className="relative">
+            <label className="label">Workstream</label>
+            <button
+              type="button"
+              className="input flex items-center justify-between gap-2 text-left"
+              onClick={() => setWorkstreamOpen((v) => !v)}
+            >
+              {workstreamIds.length === 0 ? (
+                <span className="text-ink-400">Select workstream(s)…</span>
+              ) : (
+                <span className="truncate">
+                  {departments
+                    .filter((d) => workstreamIds.includes(d.id))
+                    .map((d) => (d.id === primaryWorkstreamId ? `${d.name} (primary)` : d.name))
+                    .join(', ')}
+                </span>
+              )}
+              <ChevronDown size={15} className={`shrink-0 text-ink-400 transition-transform ${workstreamOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {workstreamOpen && (
+              <div className="absolute left-0 right-0 z-20 mt-1 max-h-56 space-y-0.5 overflow-y-auto rounded-lg border border-cream-300 bg-white p-2 shadow-lg">
+                {departments.length === 0 ? (
+                  <p className="px-1 py-1 text-xs text-ink-500">No workstreams yet.</p>
+                ) : (
+                  departments.map((d) => {
+                    const checked = workstreamIds.includes(d.id)
+                    const isPrimary = primaryWorkstreamId === d.id
+                    return (
+                      <label
+                        key={d.id}
+                        className="flex items-center justify-between gap-2 rounded px-1 py-1 text-sm hover:bg-cream-100"
+                      >
+                        <span className="flex items-center gap-2">
+                          <input type="checkbox" checked={checked} onChange={() => toggleWorkstream(d.id)} />
+                          {d.name}
+                        </span>
+                        {checked && (
+                          <button
+                            type="button"
+                            className={`flex shrink-0 items-center gap-1 text-xs ${
+                              isPrimary ? 'font-semibold text-brand-700' : 'text-ink-400 hover:text-ink-700'
+                            }`}
+                            title="Mark as primary workstream"
+                            onClick={() => setPrimaryWorkstreamId(d.id)}
+                          >
+                            <Star size={13} fill={isPrimary ? 'currentColor' : 'none'} /> Primary
+                          </button>
+                        )}
+                      </label>
+                    )
+                  })
+                )}
+                <button
+                  type="button"
+                  className="btn-ghost mt-1 w-full !min-h-0 !py-1 text-xs"
+                  onClick={() => setWorkstreamOpen(false)}
+                >
+                  Done
+                </button>
+              </div>
+            )}
+            {workstreamIds.length > 1 && (
+              <p className="mt-1 text-xs text-ink-500">
+                The starred workstream becomes their Department; the rest are added as additional workstreams.
+              </p>
+            )}
           </div>
           <div>
             <label className="label">Title</label>
@@ -191,10 +292,22 @@ function InviteEmployeeModal({ isAdmin, onClose }: { isAdmin: boolean; onClose: 
               onChange={(e) => setCapacity(e.target.value)}
             />
           </div>
+          <div>
+            <label className="label">Rate ($/h)</label>
+            <input
+              className="input"
+              type="number"
+              min="0"
+              step="0.01"
+              value={payRate}
+              onChange={(e) => setPayRate(e.target.value)}
+              placeholder="e.g. 25"
+            />
+          </div>
         </div>
         <button
           className="btn-primary w-full"
-          disabled={!canSubmit || invite.isPending}
+          disabled={!canSubmit || invite.isPending || updateRate.isPending || addWorkstreamMember.isPending}
           onClick={() => void submit()}
         >
           <UserPlus size={16} /> Send invite
@@ -332,8 +445,13 @@ function EmployeeModal({
   isHR: boolean
   onClose: () => void
 }) {
+  const { profile: viewer } = useAuth()
   const update = useUpdateProfile()
   const updateRate = useUpdateCostRate()
+  const { data: workstreamMembers = [] } = useWorkstreamMembers()
+  const addWorkstreamMember = useAddWorkstreamMember()
+  const removeWorkstreamMember = useRemoveWorkstreamMember()
+  const [addWorkstreamId, setAddWorkstreamId] = useState('')
   const [tab, setTab] = useState<'details' | 'attachments' | 'settings'>('details')
   const [done, setDone] = useState(false)
 
@@ -346,6 +464,19 @@ function EmployeeModal({
   const roleOptions = isAdmin ? ALL_ROLES : isPrivileged ? [person.role] : HR_ASSIGNABLE_ROLES
   const rowLocked = !isAdmin && isPrivileged
   const showExtraTabs = (isAdmin || isHR) && !rowLocked
+
+  // Additional workstreams: staffed here on top of (not instead of) the
+  // Department field above, via the workstream_members table - lets this
+  // person be assigned hours on tasks in more than one workstream. Same
+  // rowLocked boundary as every other Details field: an admin can always
+  // edit it, an executive/HR only on a row that isn't privileged.
+  const myAdditionalWorkstreamIds = new Set(
+    workstreamMembers.filter((m) => m.profile_id === person.user_id).map((m) => m.department_id),
+  )
+  const additionalWorkstreams = departments.filter((d) => myAdditionalWorkstreamIds.has(d.id))
+  const availableWorkstreams = departments.filter(
+    (d) => d.id !== person.department_id && !myAdditionalWorkstreamIds.has(d.id),
+  )
 
   const [fullName, setFullName] = useState(person.full_name)
   const [empTitle, setEmpTitle] = useState(person.title ?? '')
@@ -530,6 +661,73 @@ function EmployeeModal({
               </div>
             )}
           </div>
+
+          <div>
+            <label className="label">Additional workstreams</label>
+            <p className="mb-1.5 text-xs text-ink-500">
+              Staffed here on top of their Department above — eligible for hour allocation on
+              these workstreams' tasks too.
+            </p>
+            {additionalWorkstreams.length > 0 && (
+              <ul className="mb-2 space-y-1">
+                {additionalWorkstreams.map((d) => (
+                  <li
+                    key={d.id}
+                    className="flex items-center justify-between rounded-lg border border-cream-300 px-2.5 py-1.5 text-sm"
+                  >
+                    <span className="flex items-center gap-1.5 text-ink-800">
+                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: d.color }} />
+                      {d.name}
+                    </span>
+                    {!rowLocked && (
+                      <button
+                        className="shrink-0 text-ink-400 hover:text-rose-600"
+                        title="Remove from Workstream"
+                        disabled={removeWorkstreamMember.isPending}
+                        onClick={() =>
+                          removeWorkstreamMember.mutate({ departmentId: d.id, profileId: person.user_id })
+                        }
+                      >
+                        <UserMinus size={15} />
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {!rowLocked && (
+              <div className="flex gap-2">
+                <select
+                  className="input"
+                  value={addWorkstreamId}
+                  onChange={(e) => setAddWorkstreamId(e.target.value)}
+                >
+                  <option value="">Add a workstream…</option>
+                  {availableWorkstreams.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  className="btn-primary shrink-0"
+                  disabled={!addWorkstreamId || addWorkstreamMember.isPending || !viewer}
+                  onClick={() => {
+                    addWorkstreamMember.mutate({
+                      org_id: person.org_id,
+                      department_id: addWorkstreamId,
+                      profile_id: person.user_id,
+                      added_by: viewer!.user_id,
+                    })
+                    setAddWorkstreamId('')
+                  }}
+                >
+                  <UserPlus size={15} /> Add
+                </button>
+              </div>
+            )}
+          </div>
+
           {rowLocked ? (
             <p className="text-sm text-ink-500">Only an admin can edit this person.</p>
           ) : (

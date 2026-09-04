@@ -33,6 +33,9 @@ import type {
   TimeEntry,
   TimesheetDecision,
   TimesheetWeekReview,
+  TicketAttachment,
+  TicketComment,
+  Ticket,
   TimesheetWeekRow,
   UserRole,
   Organization,
@@ -40,6 +43,7 @@ import type {
   PayPeriodCadence,
   UserUtilization,
   WorkspaceMembership,
+  WorkstreamMember,
   WorkstreamBudgetRequest,
   WorkstreamBudgetRow,
 } from './types'
@@ -303,6 +307,73 @@ export function useArchiveAccount() {
   })
 }
 
+// -------------------------------------------------------- contractor scope
+
+/** Every project the given person holds a task on, resolved from three
+ *  overlapping sources on purpose:
+ *
+ *    - `task_assignees`        — the classic "who's on this task" membership.
+ *    - `task_hour_allocations` — how a lead actually staffs someone now. The
+ *      trigger that mirrors allocations back into `task_assignees` is still
+ *      pending on the live DB, so reading only the first table would leave
+ *      anyone staffed the new way seeing nothing at all.
+ *    - `time_entries`          — work they genuinely logged. Keeps a project
+ *      visible after a task is reassigned away from them, which matters most
+ *      at exactly the moment they're filling in a timesheet for it.
+ *
+ *  Task status is deliberately ignored: ticking your last task done should
+ *  not make the engagement vanish out from under you.
+ */
+async function fetchProjectIdsFor(userId: string) {
+  const [assignees, allocations, entries] = await Promise.all([
+    supabase.from('task_assignees').select('task_id').eq('profile_id', userId),
+    supabase.from('task_hour_allocations').select('task_id').eq('profile_id', userId),
+    supabase.from('time_entries').select('project_id').eq('user_id', userId),
+  ])
+
+  const projectIds = new Set(
+    unwrap<{ project_id: string }[]>(entries.data, entries.error).map((r) => r.project_id),
+  )
+  const taskIds = [
+    ...unwrap<{ task_id: string }[]>(assignees.data, assignees.error),
+    ...unwrap<{ task_id: string }[]>(allocations.data, allocations.error),
+  ].map((r) => r.task_id)
+
+  if (taskIds.length > 0) {
+    const { data, error } = await supabase
+      .from('tasks')
+      .select('project_id')
+      .in('id', [...new Set(taskIds)])
+    unwrap<{ project_id: string }[]>(data, error).forEach((t) => projectIds.add(t.project_id))
+  }
+  return projectIds
+}
+
+/** The contractor project scope, for callers that need it on its own rather
+ *  than through an already-filtered list (currently just ProjectDetail, which
+ *  has to decide whether to render a project reached by direct URL).
+ *
+ *  `scoped` false means "sees everything" — which is not the same as an empty
+ *  `ids`, meaning "scoped, and nothing qualifies yet". Callers must wait out
+ *  `isLoading` before acting on `ids`, or they'll bounce a contractor off a
+ *  project they're perfectly entitled to.
+ *
+ *  This is a UI scope, not a security boundary: RLS still hands a
+ *  contractor's session every project in the workspace. */
+export function useVisibleProjectIds() {
+  const { profile, isContractor } = useAuth()
+  const userId = profile?.user_id
+  const scoped = isContractor && !!userId
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['my-project-ids', userId],
+    enabled: scoped,
+    queryFn: () => fetchProjectIdsFor(userId!),
+  })
+
+  return { scoped, ids: data, isLoading: scoped && isLoading }
+}
+
 // ------------------------------------------------------------------ budgets
 
 /**
@@ -310,14 +381,30 @@ export function useArchiveAccount() {
  * RLS filters time_entry_costs — the UI renders that as "—", not as zero.
  */
 export function useProjectBudgets() {
+  const { profile, isContractor } = useAuth()
+  const userId = profile?.user_id
+  // Contractors see only the projects they hold a task on. Filtering here,
+  // at the shared source, rather than in each page: this one list feeds the
+  // Projects grid, the Deliverables filter, the Timesheet picker, My Work and
+  // every other project dropdown, so scoping it once is what makes the rule
+  // hold everywhere instead of wherever someone remembered to apply it.
+  const scoped = isContractor && !!userId
+
   return useQuery({
-    queryKey: ['budgets'],
+    // 'mine:' prefixed so the key can't collide with useProjectBudget's
+    // ['budgets', projectId]. Still under ['budgets'], so every existing
+    // invalidateQueries({ queryKey: ['budgets'] }) keeps reaching it — and
+    // re-runs the scope fetch below with it.
+    queryKey: ['budgets', scoped ? `mine:${userId}` : 'all'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('v_project_budget')
         .select('*')
         .order('pct_amount', { ascending: false, nullsFirst: false })
-      return unwrap<ProjectBudget[]>(data, error)
+      const rows = unwrap<ProjectBudget[]>(data, error)
+      if (!scoped) return rows
+      const mine = await fetchProjectIdsFor(userId!)
+      return rows.filter((r) => mine.has(r.project_id))
     },
   })
 }
@@ -624,6 +711,45 @@ export function useCreateDepartment() {
   })
 }
 
+export function useRenameDepartment() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async ({ id, name }: { id: string; name: string }) => {
+      const { error } = await supabase.from('departments').update({ name }).eq('id', id)
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['departments'] })
+      toast.success('Workstream renamed')
+    },
+    onError: (err: Error) => toast.error("Couldn't rename workstream", err.message),
+  })
+}
+
+/** Goes through the delete_workstream() RPC rather than a plain delete, so a
+ *  workstream still carrying tasks, budgets or timesheet weeks is refused with
+ *  a readable reason instead of a raw foreign-key error - and so the members
+ *  pointing at it (profiles.department_id, which has no FK) get detached. */
+export function useDeleteDepartment() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (departmentId: string) => {
+      const { error } = await supabase.rpc('delete_workstream', { p_department_id: departmentId })
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['departments'] })
+      qc.invalidateQueries({ queryKey: ['profiles'] })
+      qc.invalidateQueries({ queryKey: ['workstream-members'] })
+      qc.invalidateQueries({ queryKey: ['department-leads'] })
+      toast.success('Workstream deleted')
+    },
+    onError: (err: Error) => toast.error("Couldn't delete workstream", err.message),
+  })
+}
+
 /** Every "additional lead" tag across the org, in one query - lets a single
  *  admin/executive be recorded as leading any number of workstreams (see
  *  [[DepartmentLead]]), on top of whoever's a department_id member with
@@ -667,6 +793,54 @@ export function useRemoveDepartmentLead() {
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['department-leads'] }),
     onError: (err: Error) => toast.error("Couldn't remove lead", err.message),
+  })
+}
+
+// ------------------------------------------------------- workstream members
+
+/** Everyone staffed on an ADDITIONAL workstream on top of their primary
+ *  department_id ([[WorkstreamMember]]) - lets a contractor/employee be
+ *  eligible for hour allocation on more than one workstream's tasks. Used by
+ *  TaskViews' HourAllocationsSection (assignment eligibility), AdminDepartments
+ *  (member list/count) and AdminEmployees (per-person editing). */
+export function useWorkstreamMembers() {
+  return useQuery({
+    queryKey: ['workstream-members'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('workstream_members').select('*')
+      return unwrap<WorkstreamMember[]>(data, error)
+    },
+    staleTime: 60_000,
+  })
+}
+
+export function useAddWorkstreamMember() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (row: { org_id: string; department_id: string; profile_id: string; added_by: string }) => {
+      const { error } = await supabase.from('workstream_members').insert(row)
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['workstream-members'] }),
+    onError: (err: Error) => toast.error("Couldn't add to workstream", err.message),
+  })
+}
+
+export function useRemoveWorkstreamMember() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async ({ departmentId, profileId }: { departmentId: string; profileId: string }) => {
+      const { error } = await supabase
+        .from('workstream_members')
+        .delete()
+        .eq('department_id', departmentId)
+        .eq('profile_id', profileId)
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['workstream-members'] }),
+    onError: (err: Error) => toast.error("Couldn't remove from workstream", err.message),
   })
 }
 
@@ -794,6 +968,9 @@ export function useSetTaskAssignees() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['task-assignees'] })
       qc.invalidateQueries({ queryKey: ['dept-load'] })
+      // Assignment is what puts a project inside a contractor's scope.
+      qc.invalidateQueries({ queryKey: ['my-project-ids'] })
+      qc.invalidateQueries({ queryKey: ['budgets'] })
     },
     onError: (err: Error) => toast.error("Couldn't update assignees", err.message),
   })
@@ -851,6 +1028,10 @@ export function useSetTaskHourAllocation() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['task-hour-allocations'] })
       qc.invalidateQueries({ queryKey: ['workstream-budgets'] })
+      // Allocating hours is the other half of assignment, so it moves a
+      // project in or out of a contractor's scope too.
+      qc.invalidateQueries({ queryKey: ['my-project-ids'] })
+      qc.invalidateQueries({ queryKey: ['budgets'] })
     },
     onError: (err: Error) => toast.error("Couldn't save hours", err.message),
   })
@@ -867,6 +1048,10 @@ export function useDeleteTaskHourAllocation() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['task-hour-allocations'] })
       qc.invalidateQueries({ queryKey: ['workstream-budgets'] })
+      // Allocating hours is the other half of assignment, so it moves a
+      // project in or out of a contractor's scope too.
+      qc.invalidateQueries({ queryKey: ['my-project-ids'] })
+      qc.invalidateQueries({ queryKey: ['budgets'] })
     },
     onError: (err: Error) => toast.error("Couldn't remove hours", err.message),
   })
@@ -1923,5 +2108,205 @@ export function useCreateWorkspace() {
       toast.success('Workspace created', 'Switching you into it now.')
     },
     onError: (err: Error) => toast.error("Couldn't create the workspace", err.message),
+  })
+}
+
+// ------------------------------------------------------------------ tickets
+
+/** Every ticket the signed-in person is allowed to see. That is the whole
+ *  queue for an admin and only your own submissions for everyone else —
+ *  the `tickets_read` policy does the filtering, so there is one hook for
+ *  both audiences rather than a "mine" and an "all" variant that could
+ *  drift apart. */
+export function useTickets() {
+  return useQuery({
+    queryKey: ['tickets'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('tickets')
+        .select('*')
+        .order('created_at', { ascending: false })
+      return unwrap<Ticket[]>(data, error)
+    },
+  })
+}
+
+export function useCreateTicket() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (
+      t: Pick<Ticket, 'org_id' | 'subject' | 'description' | 'category' | 'priority' | 'submitted_by'>,
+    ) => {
+      const { data, error } = await supabase.from('tickets').insert(t).select('*').single()
+      if (error) throw new Error(error.message)
+      return data as Ticket
+    },
+    onSuccess: (ticket) => {
+      qc.invalidateQueries({ queryKey: ['tickets'] })
+      toast.success(`Ticket #${ticket.ticket_number} submitted`, 'An admin has been notified.')
+    },
+    onError: (err: Error) => toast.error("Couldn't submit ticket", err.message),
+  })
+}
+
+/** Admins can patch anything here; a submitter reaching this hook is limited
+ *  server-side to confirming or reopening a resolution
+ *  (tickets_guard_submitter_update), so no role check is duplicated here. */
+export function useUpdateTicket() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async ({
+      id,
+      patch,
+    }: {
+      id: string
+      patch: Partial<Pick<Ticket, 'status' | 'priority' | 'category' | 'assigned_to' | 'subject'>>
+    }) => {
+      const { error } = await supabase.from('tickets').update(patch).eq('id', id)
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['tickets'] })
+      qc.invalidateQueries({ queryKey: ['notifications'] })
+    },
+    onError: (err: Error) => toast.error("Couldn't update ticket", err.message),
+  })
+}
+
+export function useDeleteTicket() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('tickets').delete().eq('id', id)
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['tickets'] })
+      toast.success('Ticket deleted')
+    },
+    onError: (err: Error) => toast.error("Couldn't delete ticket", err.message),
+  })
+}
+
+/** Internal notes simply don't come back for a non-admin — the read policy
+ *  drops the rows, so the submitter's thread can't leak one through a
+ *  forgotten render guard. */
+export function useTicketComments(ticketId: string | undefined) {
+  return useQuery({
+    queryKey: ['ticket-comments', ticketId],
+    enabled: !!ticketId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('ticket_comments')
+        .select('*')
+        .eq('ticket_id', ticketId!)
+        .order('created_at')
+      return unwrap<TicketComment[]>(data, error)
+    },
+  })
+}
+
+export function useAddTicketComment() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (
+      c: Pick<TicketComment, 'org_id' | 'ticket_id' | 'author_id' | 'body' | 'is_internal'>,
+    ) => {
+      const { error } = await supabase.from('ticket_comments').insert(c)
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['ticket-comments', vars.ticket_id] })
+      qc.invalidateQueries({ queryKey: ['tickets'] })
+    },
+    onError: (err: Error) => toast.error("Couldn't post reply", err.message),
+  })
+}
+
+export function useDeleteTicketComment() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async ({ id }: { id: string; ticketId: string }) => {
+      const { error } = await supabase.from('ticket_comments').delete().eq('id', id)
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: (_data, vars) => qc.invalidateQueries({ queryKey: ['ticket-comments', vars.ticketId] }),
+    onError: (err: Error) => toast.error("Couldn't delete reply", err.message),
+  })
+}
+
+/** File bytes live in the private `ticket-files` bucket; these hooks only
+ *  manage the metadata row, same convention as deliverable attachments. */
+export function useTicketAttachments(ticketId: string | undefined) {
+  return useQuery({
+    queryKey: ['ticket-attachments', ticketId],
+    enabled: !!ticketId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('ticket_attachments')
+        .select('*')
+        .eq('ticket_id', ticketId!)
+        .order('created_at')
+      return unwrap<TicketAttachment[]>(data, error)
+    },
+  })
+}
+
+/** Counts for every visible ticket in one query, so a long queue doesn't
+ *  fire a request per row just to show a paperclip. */
+export function useTicketAttachmentCounts() {
+  return useQuery({
+    queryKey: ['ticket-attachment-counts'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('ticket_attachments').select('ticket_id')
+      const rows = unwrap<{ ticket_id: string }[]>(data, error)
+      const counts: Record<string, number> = {}
+      rows.forEach((r) => {
+        counts[r.ticket_id] = (counts[r.ticket_id] ?? 0) + 1
+      })
+      return counts
+    },
+  })
+}
+
+export function useAddTicketAttachment() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (
+      row: Pick<
+        TicketAttachment,
+        'org_id' | 'ticket_id' | 'added_by' | 'file_path' | 'file_name' | 'file_size' | 'content_type'
+      >,
+    ) => {
+      const { error } = await supabase.from('ticket_attachments').insert(row)
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['ticket-attachments', vars.ticket_id] })
+      qc.invalidateQueries({ queryKey: ['ticket-attachment-counts'] })
+    },
+    onError: (err: Error) => toast.error("Couldn't attach file", err.message),
+  })
+}
+
+export function useDeleteTicketAttachment() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async ({ id }: { id: string; ticketId: string }) => {
+      const { error } = await supabase.from('ticket_attachments').delete().eq('id', id)
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['ticket-attachments', vars.ticketId] })
+      qc.invalidateQueries({ queryKey: ['ticket-attachment-counts'] })
+    },
+    onError: (err: Error) => toast.error("Couldn't remove attachment", err.message),
   })
 }

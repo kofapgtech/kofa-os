@@ -3,7 +3,7 @@
 // if you want end-to-end inference; these hand-written shapes keep the app
 // readable and cover everything the UI touches.
 
-export type UserRole = 'admin' | 'executive' | 'dept_lead' | 'billing_finance' | 'hr_manager' | 'staff'
+export type UserRole = 'admin' | 'executive' | 'dept_lead' | 'hr_manager' | 'staff'
 export type EmploymentType = 'employee' | 'contractor'
 export type TaskTimeRequestStatus = 'pending' | 'approved' | 'denied'
 export type PayPeriodStatus = 'open' | 'locked' | 'paid'
@@ -32,6 +32,15 @@ export type DeliverableStage =
   | 'revisions_requested'
 export type ReviewDecision = 'submit' | 'approve' | 'request_changes' | 'reopen'
 export type MonthlyBudgetStatus = 'draft' | 'approved'
+export type TicketStatus = 'open' | 'in_progress' | 'resolved' | 'closed'
+export type TicketPriority = 'low' | 'normal' | 'high' | 'urgent'
+export type TicketCategory =
+  | 'it_support'
+  | 'access'
+  | 'hr'
+  | 'payroll'
+  | 'facilities'
+  | 'other'
 export type PayPeriodCadence = 'weekly' | 'biweekly' | 'semi_monthly' | 'monthly'
 export type NotificationType =
   | 'task_assigned'
@@ -44,6 +53,10 @@ export type NotificationType =
   | 'department_task_assigned'
   | 'timesheet_submitted'
   | 'timesheet_decided'
+  | 'ticket_submitted'
+  | 'ticket_reply'
+  | 'ticket_status'
+  | 'ticket_assigned'
 
 /** A company-wide team (Studio, Tech/Tools, PPC, ...). Doubles as the org
  *  chart grouping for employees (Profile.department_id), the team a task
@@ -69,6 +82,18 @@ export interface DepartmentLead {
   created_at: string
 }
 
+/** Tags a profile as staffed on an ADDITIONAL workstream, on top of their
+ *  primary department_id. Unlike DepartmentLead this is about being eligible
+ *  for task/hour assignment there, not leadership - see HourAllocationsSection
+ *  and the workstream_members table. */
+export interface WorkstreamMember {
+  department_id: string
+  profile_id: string
+  org_id: string
+  added_by: string
+  created_at: string
+}
+
 /** A person's membership of ONE workspace. Since the identity/membership split
  *  a human can hold several of these, so the row is keyed on `membership_id`
  *  and the person is `user_id` (= auth.users.id = app_users.id).
@@ -88,8 +113,10 @@ export interface Profile {
   full_name: string
   email: string
   role: UserRole
-  /** Descriptive only — grants no different permissions than the same `role`
-   *  value would otherwise have. */
+  /** Cuts across `role` rather than replacing it. Almost entirely descriptive
+   *  — the pay chain differs, and contractors don't get the Accounts page
+   *  (see AuthContext.isContractor) — but every other permission still comes
+   *  from `role`. */
   employment_type: EmploymentType
   title: string | null
   capacity_hours_per_week: number
@@ -393,6 +420,51 @@ export interface DeliverableComment {
   deliverable_id: string
   author_id: string
   body: string
+  created_at: string
+}
+
+/** A support request raised by anyone in the workspace. Private between the
+ *  person who submitted it and the workspace admins — enforced by the
+ *  `tickets_read` RLS policy, not by what the UI chooses to render. */
+export interface Ticket {
+  id: string
+  org_id: string
+  /** Sequential per workspace, shown as "#14". Assigned server-side. */
+  ticket_number: number
+  subject: string
+  description: string
+  category: TicketCategory
+  priority: TicketPriority
+  status: TicketStatus
+  submitted_by: string
+  assigned_to: string | null
+  resolved_at: string | null
+  closed_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface TicketComment {
+  id: string
+  org_id: string
+  ticket_id: string
+  author_id: string
+  body: string
+  /** Admin-only note. The submitter never receives it (RLS filters the row)
+   *  and it fires no notification. */
+  is_internal: boolean
+  created_at: string
+}
+
+export interface TicketAttachment {
+  id: string
+  org_id: string
+  ticket_id: string
+  added_by: string
+  file_path: string
+  file_name: string
+  file_size: number | null
+  content_type: string | null
   created_at: string
 }
 

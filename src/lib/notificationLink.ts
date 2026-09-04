@@ -3,7 +3,7 @@ import type { AppNotification } from './types'
 
 /**
  * Resolves a notification to the in-app URL it's about. A few entity types
- * (task, workstream_budget_request, deliverable) only carry their own id,
+ * (task, workstream_budget_request, deliverable, ticket) only carry their own id,
  * not the project they live under, so those need a lookup before we can
  * build a route. Returns null when there's nothing sensible to navigate to.
  */
@@ -52,6 +52,21 @@ export async function resolveNotificationHref(n: AppNotification): Promise<strin
         .maybeSingle()
       if (!data?.project_id) return null
       return `/projects/${data.project_id}?tab=deliverables&deliverable=${n.entity_id}`
+    }
+
+    // Tickets have two homes for the same row: the submitter's own list and
+    // the admin queue. Which one the reader wants follows from whether the
+    // ticket is theirs, not from the notification type - an admin who also
+    // raised the ticket should land on their own copy.
+    case 'ticket': {
+      const [{ data: ticket }, { data: auth }] = await Promise.all([
+        supabase.from('tickets').select('submitted_by').eq('id', n.entity_id).maybeSingle(),
+        supabase.auth.getUser(),
+      ])
+      if (!ticket) return null
+      return ticket.submitted_by === auth.user?.id
+        ? `/tickets?ticket=${n.entity_id}`
+        : `/tickets/manage?ticket=${n.entity_id}`
     }
 
     default:

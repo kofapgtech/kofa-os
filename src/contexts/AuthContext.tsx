@@ -9,8 +9,8 @@ interface AuthContextValue {
   profile: Profile | null
   loading: boolean
   /** Operational leadership: Command centre access, acts on any project.
-   *  Does NOT include billing_finance/hr_manager — they get narrower,
-   *  specific grants below rather than this broad one. */
+   *  Does NOT include hr_manager — HR gets narrower, specific grants
+   *  below rather than this broad one. */
   isLeadership: boolean
   isAdmin: boolean
   /** Everything admin can do except invite/create/delete a user identity. */
@@ -19,10 +19,19 @@ interface AuthContextValue {
   /** Owner of the ACTIVE workspace — settings and ownership transfer. */
   isOwner: boolean
   /** Sees rates, costs, and budget dollar figures wherever they appear —
-   *  a wider set than isLeadership (adds billing_finance). */
+   *  a wider set than isLeadership (adds hr_manager). */
   hasFinancialAccess: boolean
   isHR: boolean
   isPayrollAdmin: boolean
+  /** Owns the org chart: create, rename, delete a workstream, set its lead(s)
+   *  and move people in and out. Admin, executive and HR — mirrored exactly by
+   *  can_manage_workstreams() in the database, which is the real gate. */
+  canManageWorkstreams: boolean
+  /** Engaged as a contractor rather than an employee. Not a role -- it cuts
+   *  across all of them -- so it gates the client-commercial surfaces
+   *  (Accounts) that contractors have no business seeing, independently of
+   *  whatever role they hold. */
+  isContractor: boolean
   signInWithPassword: (email: string, password: string) => Promise<{ error: string | null }>
   signInWithMagicLink: (email: string) => Promise<{ error: string | null }>
   /** Full-page redirect to Google; resolves (almost) immediately, before the
@@ -148,9 +157,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       profile?.role === 'admin' ||
       profile?.role === 'dept_lead' ||
       profile?.role === 'executive' ||
-      profile?.role === 'billing_finance',
+      profile?.role === 'hr_manager',
     isHR: profile?.role === 'admin' || profile?.role === 'hr_manager',
-    isPayrollAdmin: profile?.role === 'admin' || profile?.role === 'billing_finance',
+    isPayrollAdmin: profile?.role === 'admin' || profile?.role === 'hr_manager',
+    canManageWorkstreams:
+      profile?.role === 'admin' || profile?.role === 'executive' || profile?.role === 'hr_manager',
+    isContractor: profile?.employment_type === 'contractor',
     signInWithPassword,
     signInWithMagicLink,
     signInWithGoogle,
