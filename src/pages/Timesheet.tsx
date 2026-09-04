@@ -17,6 +17,7 @@ import {
   TIMESHEET_STATUS_LABEL,
   hours,
   minutesToHours,
+  money,
   shortDate,
 } from '@/lib/format'
 import type { TimesheetWeekRow } from '@/lib/types'
@@ -295,6 +296,12 @@ function ApprovalStrip({
                 {minutesToHours(w.total_minutes).toFixed(2)}h · {w.entry_count} entr
                 {w.entry_count === 1 ? 'y' : 'ies'}
               </p>
+              {w.fee_count > 0 && (
+                <p className="text-xs font-medium text-brand-600">
+                  + {money(w.fee_amount)} from {w.fee_count} accepted deliverable
+                  {w.fee_count === 1 ? '' : 's'}
+                </p>
+              )}
             </div>
             <Chip className={TIMESHEET_STATUS_CLASS[w.status]}>
               {w.paid_at ? 'Paid' : TIMESHEET_STATUS_LABEL[w.status]}

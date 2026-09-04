@@ -8,6 +8,19 @@
   # Netlify's secrets scanner flags it wherever it appears in migration SQL.
   SECRETS_SCAN_OMIT_PATHS = "supabase/migrations/**"
 
+  # Vite inlines every VITE_* variable into the client bundle at build time --
+  # that is what the prefix means, and it is the only way the browser can
+  # reach Supabase at all. So the scanner finding both of these in
+  # dist/assets/*.js is correct and expected, not a leak: the project URL is
+  # public, and the publishable (anon) key is designed to be handed to every
+  # visitor. Row-level security, not secrecy, is what protects the data
+  # behind them -- which is exactly why RLS policies deserve care.
+  #
+  # Scoped to these two keys on purpose rather than switching the scanner off
+  # with SECRETS_SCAN_ENABLED: a service-role key or anything else genuinely
+  # secret must still fail the build if it ever reaches the bundle.
+  SECRETS_SCAN_OMIT_KEYS = "VITE_SUPABASE_URL,VITE_SUPABASE_PUBLISHABLE_KEY"
+
 # Client-side routing: without this, a hard refresh on /projects/:id or
 # /portal/:token returns a 404 from Netlify instead of reaching the router.
 [[redirects]]

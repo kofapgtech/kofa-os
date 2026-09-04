@@ -23,6 +23,7 @@ dist-ssr
 *.sln
 *.sw?
 
+
 # Supabase CLI local cache
 supabase/.temp/
 supabase/migrations/

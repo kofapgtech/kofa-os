@@ -16,6 +16,8 @@ import type {
   DepartmentLoad,
   EmployeeAttachment,
   PayPeriod,
+  DeliverableFeeAllocation,
+  DeliverableFeeWeek,
   PayrollEntry,
   PayrollLineItem,
   PayrollPayment,
@@ -1057,6 +1059,153 @@ export function useDeleteTaskHourAllocation() {
   })
 }
 
+// -------------------------------------------------------- deliverable fees
+
+/** Fee allocations, optionally narrowed to one deliverable. RLS is narrower
+ *  here than on hour allocations by design: an hour allocation only leaks
+ *  hours, but a fee IS the money, so a colleague's fee is not org-wide
+ *  readable — non-leads get back only their own rows. */
+export function useDeliverableFeeAllocations(deliverableId?: string) {
+  return useQuery({
+    queryKey: ['deliverable-fees', deliverableId ?? 'all'],
+    queryFn: async () => {
+      let q = supabase.from('deliverable_fee_allocations').select('*').order('budget_month')
+      if (deliverableId) q = q.eq('deliverable_id', deliverableId)
+      const { data, error } = await q
+      return unwrap<DeliverableFeeAllocation[]>(data, error)
+    },
+  })
+}
+
+/** Every fee allocation across a set of deliverables — one query for a whole
+ *  task's worth of deliverables rather than one per card. */
+export function useDeliverableFeesFor(deliverableIds: string[]) {
+  const key = [...deliverableIds].sort().join(',')
+  return useQuery({
+    queryKey: ['deliverable-fees', 'set', key],
+    enabled: deliverableIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('deliverable_fee_allocations')
+        .select('*')
+        .in('deliverable_id', deliverableIds)
+      return unwrap<DeliverableFeeAllocation[]>(data, error)
+    },
+  })
+}
+
+/** Upserts one person's share of a deliverable's fee for a budget month
+ *  (unique on deliverable_id/profile_id/budget_month). A DB trigger refuses
+ *  the write once the deliverable has been accepted. */
+export function useSetDeliverableFeeAllocation() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (args: {
+      deliverable_id: string
+      profile_id: string
+      department_id: string
+      budget_month: string
+      amount: number
+      org_id: string
+      created_by: string
+    }) => {
+      const { error } = await supabase
+        .from('deliverable_fee_allocations')
+        .upsert(args, { onConflict: 'deliverable_id,profile_id,budget_month' })
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['deliverable-fees'] })
+      qc.invalidateQueries({ queryKey: ['workstream-budgets'] })
+      qc.invalidateQueries({ queryKey: ['task-assignees'] })
+    },
+    onError: (err: Error) => toast.error("Couldn't save the fee", err.message),
+  })
+}
+
+export function useDeleteDeliverableFeeAllocation() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('deliverable_fee_allocations').delete().eq('id', id)
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['deliverable-fees'] })
+      qc.invalidateQueries({ queryKey: ['workstream-budgets'] })
+      qc.invalidateQueries({ queryKey: ['task-assignees'] })
+    },
+    onError: (err: Error) => toast.error("Couldn't remove the fee", err.message),
+  })
+}
+
+/** Acceptance is the money event: it makes the deliverable's fees earned and
+ *  opens the timesheet week they get paid in. Separate from the client-facing
+ *  stage board (useTransitionDeliverable) on purpose. */
+export function useAcceptDeliverable() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (args: { id: string; comment?: string }) => {
+      const { error } = await supabase.rpc('accept_deliverable', {
+        p_deliverable_id: args.id,
+        p_comment: args.comment ?? null,
+      })
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['deliverables'] })
+      qc.invalidateQueries({ queryKey: ['deliverable-fees'] })
+      qc.invalidateQueries({ queryKey: ['reviews'] })
+      qc.invalidateQueries({ queryKey: ['timesheet-weeks'] })
+      toast.success('Deliverable accepted — the fee is now payable')
+    },
+    onError: (err: Error) => toast.error("Couldn't accept this deliverable", err.message),
+  })
+}
+
+export function useUnacceptDeliverable() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (args: { id: string; comment?: string }) => {
+      const { error } = await supabase.rpc('unaccept_deliverable', {
+        p_deliverable_id: args.id,
+        p_comment: args.comment ?? null,
+      })
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['deliverables'] })
+      qc.invalidateQueries({ queryKey: ['deliverable-fees'] })
+      qc.invalidateQueries({ queryKey: ['reviews'] })
+      qc.invalidateQueries({ queryKey: ['timesheet-weeks'] })
+      toast.success('Acceptance withdrawn')
+    },
+    onError: (err: Error) => toast.error("Couldn't withdraw acceptance", err.message),
+  })
+}
+
+/** Earned fees inside a date range, keyed off the acceptance date. Used by
+ *  payroll and by anywhere that needs "what did this person earn per
+ *  deliverable in this window". */
+export function useDeliverableFeeWeeks(from?: string, to?: string) {
+  return useQuery({
+    queryKey: ['deliverable-fee-weeks', from ?? 'all', to ?? 'all'],
+    enabled: !!from && !!to,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('v_deliverable_fee_weeks')
+        .select('*')
+        .gte('earned_date', from as string)
+        .lte('earned_date', to as string)
+      return unwrap<DeliverableFeeWeek[]>(data, error)
+    },
+  })
+}
+
 // ------------------------------------------------------------- time requests
 
 /** Requests for more hours on a specific task. */
@@ -1247,8 +1396,34 @@ export function usePayrollEntries(periodStart?: string, periodEnd?: string) {
           project_name: project.name,
           hours: minutes / 60,
           amount: Number(row.cost_amount ?? 0),
+          kind: 'hours',
         })
       }
+
+      // Deliverable-tracked work owes a flat fee instead of hours. It is
+      // earned on the date a workstream lead accepted it, so it belongs to
+      // whichever pay period contains THAT date — not the deliverable's due
+      // date and not its budget month. Hours on those tasks are already
+      // costed at 0 server-side, so nothing here is counted twice.
+      const { data: fees, error: feeError } = await supabase
+        .from('v_deliverable_fee_weeks')
+        .select('user_id, amount, project_id, project_name, earned_date')
+        .gte('earned_date', periodStart as string)
+        .lte('earned_date', periodEnd as string)
+      if (feeError) throw new Error(feeError.message)
+
+      for (const fee of fees ?? []) {
+        rows.push({
+          profile_id: fee.user_id as string,
+          profile_name: nameByUser.get(fee.user_id as string) ?? 'Unknown',
+          project_id: (fee.project_id as string) ?? 'none',
+          project_name: (fee.project_name as string) ?? 'No project',
+          hours: 0,
+          amount: Number(fee.amount ?? 0),
+          kind: 'fee',
+        })
+      }
+
       return rows
     },
   })

@@ -1,0 +1,18 @@
+-- Phase 2B — the active workspace. APPLIED 2026-08-31.
+--
+-- current_org_id() is the single point every RLS policy routes through, so
+-- teaching it which workspace a session is IN makes a switcher possible
+-- without editing a single policy.
+--
+--   active_workspace(user_id pk, org_id, set_at)   -- own row readable, no client writes
+--   current_org_id()          reads it, falls back to the oldest live membership
+--   set_active_workspace()    verifies an active membership BEFORE writing —
+--                             that check is the entire security boundary
+--   my_workspaces()           the Phase 3 switcher's list
+--
+-- Known limit: per user, not per tab. Two tabs in different workspaces fight.
+-- The fix is a JWT claim via a custom access token hook, deferred until the
+-- switcher is actually in use.
+--
+-- Full statement text is recorded in Supabase migration history under
+-- version 20260831010837. PRD: docs/PRD-Workspaces.md section 4.2

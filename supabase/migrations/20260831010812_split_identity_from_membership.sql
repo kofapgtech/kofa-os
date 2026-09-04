@@ -1,0 +1,26 @@
+-- Phase 2A — split identity from membership. APPLIED 2026-08-31.
+--
+-- profiles.id WAS auth.users.id, which made a person's workspace permanent and
+-- (because auth.users.email is globally unique) made one email in two
+-- workspaces impossible.
+--
+--   app_users   one row per human, keyed on auth.users.id (identity anchor)
+--   profiles    one row per human PER workspace
+--                 membership_id  surrogate PK
+--                 user_id        -> app_users.id  (the person)
+--                 unique (user_id, org_id)
+--
+-- The 29 FKs that pointed at profiles(id) now point at app_users(id): every
+-- child row already carries its own org_id, so (actor_column, org_id) already
+-- identifies the membership. Values unchanged — a constraint swap, not a data
+-- migration. profile_rates PK widened to (profile_id, org_id): it was one pay
+-- rate per person GLOBALLY. 17 functions rewritten for user_id.
+--
+-- NAMING: the surrogate key is `membership_id`, NOT `id`. Function bodies are
+-- stored as text and are not rewritten by a column rename, so a stray
+-- `where id = auth.uid()` would have silently matched nothing against a
+-- surrogate id and quietly denied access. With no profiles.id at all it raises
+-- instead. Fail loud, not quiet. check_workspace_isolation() asserts this.
+--
+-- Full statement text is recorded in Supabase migration history under
+-- version 20260831010812. PRD: docs/PRD-Workspaces.md section 4.1
