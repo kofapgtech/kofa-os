@@ -44,11 +44,14 @@ Click a row. Up to three tabs:
 > [!WARNING] Deactivate, do not delete
 > There is no delete. Deactivating removes their access while keeping their logged hours, timesheets and payment history intact — which is exactly what you want when someone asks about last year's numbers.
 
-## What HR sees differently
+## Who can do all this
 
-HR reaches this page but not everyone on it. A privileged person's row — anyone above Staff or Department lead — is locked: the fields are disabled, the Attachments and Settings tabs are hidden, and the message reads "Only an admin can edit this person."
+**Admins, executives and HR**, and all three have the same powers here: edit anyone on the roster, set any role, invite anyone. There are no locked rows and no capped role lists.
 
-The same limit applies to inviting: HR can assign **Staff** and **Department lead** only. It is enforced in the database and in the invite function on the server, not just in the form.
+That includes editing each other, and it includes changing your own role — so an HR or executive account can make itself an admin. That is deliberate: these are the three roles that administer people, and the workspace is small enough that splitting the job produced more friction than protection.
+
+> [!WARNING] It is the roster, not everything
+> This does not make Staff or a Workstream lead able to edit anyone, including themselves. Nobody below these three roles can change an administrative field on any profile — their own included. That boundary is enforced in the database and cannot be clicked past.
 
 ## Role labels
 

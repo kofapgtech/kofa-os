@@ -1,12 +1,13 @@
 // Creates a real, invite-only employee: an auth.users row via the service
-// role, which the client can never hold. Only an admin or hr_manager's own
-// session can call this successfully - and hr_manager is further limited to
-// non-privileged roles (see the escalation guard below), mirroring the
-// restriction independently enforced at the database level on profiles_update.
+// role, which the client can never hold. An admin, executive or hr_manager's
+// own session can call it -- the same set as is_admin_exec_or_hr() in the
+// database, which gates profiles_update.
 //
-// Executive is deliberately NOT in ALLOWED_CALLER_ROLES: an executive has
-// every other admin-tier permission (see is_admin_or_executive() in the
-// database) except this one - inviting a new employee stays admin/HR-only.
+// All three may assign any role, including admin. That is a deliberate
+// decision (2026-09-10): these three roles administer people, and splitting
+// "may edit a person" from "may create one" only produced confusion. A staff
+// or dept_lead account still cannot touch any administrative field, which is
+// the boundary that actually matters.
 //
 // The profiles row is NOT normally inserted here - the `on_auth_user_created`
 // trigger (ensure_profile_for_auth_user()) already builds it from the invited
@@ -45,10 +46,7 @@ const CORS_HEADERS = {
 }
 
 const ALL_ROLES = ['admin', 'executive', 'dept_lead', 'hr_manager', 'staff']
-const ALLOWED_CALLER_ROLES = ['admin', 'hr_manager']
-// What an hr_manager caller may assign - never a privileged tier, and never
-// themselves out of it. Admin callers are unrestricted (any ALL_ROLES value).
-const HR_ASSIGNABLE_ROLES = ['staff', 'dept_lead']
+const ALLOWED_CALLER_ROLES = ['admin', 'executive', 'hr_manager']
 const VALID_EMPLOYMENT_TYPES = ['employee', 'contractor']
 
 function json(body: unknown, status = 200) {
@@ -108,7 +106,7 @@ Deno.serve(async (req) => {
       .maybeSingle()
     if (callerError || !callerProfile) return json({ error: 'No profile for caller' }, 403)
     if (!ALLOWED_CALLER_ROLES.includes(callerProfile.role)) {
-      return json({ error: 'Only admins or HR can invite employees' }, 403)
+      return json({ error: 'Only admins, executives or HR can invite employees' }, 403)
     }
 
     const body = await req.json().catch(() => ({}))
@@ -127,13 +125,6 @@ Deno.serve(async (req) => {
       return json({ error: `employment_type must be one of ${VALID_EMPLOYMENT_TYPES.join(', ')}` }, 422)
     }
 
-    // The same escalation guard RLS enforces on profiles_update for HR edits
-    // to *existing* rows, applied here to the *creation* path: this server
-    // check is the only thing standing between an HR caller and inviteUserByEmail,
-    // since that call runs on the service role and bypasses RLS entirely.
-    if (callerProfile.role === 'hr_manager' && !HR_ASSIGNABLE_ROLES.includes(role)) {
-      return json({ error: `HR can only invite staff or dept_lead, not ${role}` }, 403)
-    }
 
     const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
       redirectTo,

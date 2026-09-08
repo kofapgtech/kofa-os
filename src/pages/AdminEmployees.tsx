@@ -33,7 +33,6 @@ const ALL_ROLES: UserRole[] = ['staff', 'dept_lead', 'hr_manager', 'executive', 
 // What an HR viewer may assign to someone else — never a privileged tier,
 // matching the same guard enforced server-side (RLS + the invite-employee
 // Edge Function). Admin/executive viewers get the full ALL_ROLES list.
-const HR_ASSIGNABLE_ROLES: UserRole[] = ['staff', 'dept_lead']
 const ROLE_LABEL: Record<UserRole, string> = {
   admin: 'Admin',
   executive: 'Executive',
@@ -45,7 +44,7 @@ const EMPLOYMENT_TYPES: EmploymentType[] = ['employee', 'contractor']
 const EMPLOYMENT_TYPE_LABEL: Record<EmploymentType, string> = { employee: 'Employee', contractor: 'Contractor' }
 
 export function AdminEmployees() {
-  const { isAdmin, isAdminOrExecutive, isHR } = useAuth()
+  const { isAdminOrExecutive, isHR } = useAuth()
 
   if (!isAdminOrExecutive && !isHR) {
     return <EmptyState title="No admin access" hint="Ask an admin for access to this page." />
@@ -55,14 +54,12 @@ export function AdminEmployees() {
     <div>
       <PageHeader helpSlug="admin-employees" title="Employees" subtitle="Invite employees and manage the roster." />
       <div className="grid gap-4 xl:grid-cols-2">
-        {/* Executive deliberately excluded from inviting - that stays admin/HR
-            only. Only a true admin can invite an admin/executive/HR
-            peer; HR's invite rights are capped to staff/dept_lead, enforced
-            again server-side since this card can't be trusted to be the only
-            gate. */}
-        {(isAdmin || isHR) && <QuickActionsCard isAdmin={isAdmin} />}
+        {/* Admin, executive and HR all administer the roster and all invite —
+            the same set as is_admin_exec_or_hr() in the database, which is the
+            real gate. Anyone who can reach this page can use this card. */}
+        <QuickActionsCard />
         <div className="xl:col-span-2">
-          <EmployeesCard isAdmin={isAdmin} isHR={isHR} />
+          <EmployeesCard />
         </div>
       </div>
     </div>
@@ -81,7 +78,7 @@ function Section({ title, icon, children }: { title: string; icon: ReactNode; ch
   )
 }
 
-function QuickActionsCard({ isAdmin }: { isAdmin: boolean }) {
+function QuickActionsCard() {
   const [open, setOpen] = useState(false)
 
   return (
@@ -89,21 +86,21 @@ function QuickActionsCard({ isAdmin }: { isAdmin: boolean }) {
       <button className="btn-primary w-full" onClick={() => setOpen(true)}>
         <UserPlus size={16} /> Invite employee
       </button>
-      {open && <InviteEmployeeModal isAdmin={isAdmin} onClose={() => setOpen(false)} />}
+      {open && <InviteEmployeeModal onClose={() => setOpen(false)} />}
     </Section>
   )
 }
 
-function InviteEmployeeModal({ isAdmin, onClose }: { isAdmin: boolean; onClose: () => void }) {
+function InviteEmployeeModal({ onClose }: { onClose: () => void }) {
   const { profile: viewer } = useAuth()
   const { data: departments = [] } = useDepartments()
   const invite = useInviteEmployee()
   const updateRate = useUpdateCostRate()
   const addWorkstreamMember = useAddWorkstreamMember()
 
-  // HR sees the same form, just capped to non-privileged roles - the server
-  // (RLS + the Edge Function) enforces this independently either way.
-  const assignableRoles = isAdmin ? ALL_ROLES : HR_ASSIGNABLE_ROLES
+  // Every role is assignable by everyone who can open this form. The server
+  // (RLS + the Edge Function) enforces the same thing independently.
+  const assignableRoles = ALL_ROLES
 
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
@@ -317,7 +314,7 @@ function InviteEmployeeModal({ isAdmin, onClose }: { isAdmin: boolean; onClose: 
   )
 }
 
-function EmployeesCard({ isAdmin, isHR }: { isAdmin: boolean; isHR: boolean }) {
+function EmployeesCard() {
   const { data: people = [], isLoading } = useAllProfiles()
   const { data: departments = [] } = useDepartments()
   const { data: rates = [] } = useProfileRates()
@@ -408,8 +405,6 @@ function EmployeesCard({ isAdmin, isHR }: { isAdmin: boolean; isHR: boolean }) {
           person={editing}
           departments={departments}
           rate={rates.find((r) => r.profile_id === editing.user_id) ?? null}
-          isAdmin={isAdmin}
-          isHR={isHR}
           onClose={() => setEditing(null)}
         />
       )}
@@ -434,15 +429,11 @@ function EmployeeModal({
   person,
   departments,
   rate,
-  isAdmin,
-  isHR,
   onClose,
 }: {
   person: Profile
   departments: Department[]
   rate: ProfileRate | null
-  isAdmin: boolean
-  isHR: boolean
   onClose: () => void
 }) {
   const { profile: viewer } = useAuth()
@@ -460,16 +451,16 @@ function EmployeeModal({
   // just avoids offering a choice the database will reject. Attachments,
   // Settings, and the pay rate carry the same boundary, since all three can
   // affect a privileged peer HR shouldn't be able to touch at all.
-  const isPrivileged = !HR_ASSIGNABLE_ROLES.includes(person.role)
-  const roleOptions = isAdmin ? ALL_ROLES : isPrivileged ? [person.role] : HR_ASSIGNABLE_ROLES
-  const rowLocked = !isAdmin && isPrivileged
-  const showExtraTabs = (isAdmin || isHR) && !rowLocked
+  // No locked rows: admin, executive and HR all administer the whole roster,
+  // matching is_admin_exec_or_hr() in the database. Reaching this modal at all
+  // already requires one of those three.
+  const roleOptions = ALL_ROLES
+  const showExtraTabs = true
 
   // Additional workstreams: staffed here on top of (not instead of) the
   // Department field above, via the workstream_members table - lets this
-  // person be assigned hours on tasks in more than one workstream. Same
-  // rowLocked boundary as every other Details field: an admin can always
-  // edit it, an executive/HR only on a row that isn't privileged.
+  // person be assigned hours on tasks in more than one workstream. Editable by
+  // anyone who can open this modal, like every other Details field.
   const myAdditionalWorkstreamIds = new Set(
     workstreamMembers.filter((m) => m.profile_id === person.user_id).map((m) => m.department_id),
   )
@@ -571,7 +562,6 @@ function EmployeeModal({
               <input
                 className="input"
                 value={fullName}
-                disabled={rowLocked}
                 onChange={(e) => setFullName(e.target.value)}
               />
             </div>
@@ -580,7 +570,6 @@ function EmployeeModal({
               <input
                 className="input"
                 value={empTitle}
-                disabled={rowLocked}
                 onChange={(e) => setEmpTitle(e.target.value)}
                 placeholder="Optional"
               />
@@ -594,7 +583,6 @@ function EmployeeModal({
               <select
                 className="input"
                 value={role}
-                disabled={rowLocked}
                 onChange={(e) => setRole(e.target.value as UserRole)}
               >
                 {roleOptions.map((r) => (
@@ -609,7 +597,6 @@ function EmployeeModal({
               <select
                 className="input"
                 value={employmentType}
-                disabled={rowLocked}
                 onChange={(e) => setEmploymentType(e.target.value as EmploymentType)}
               >
                 {EMPLOYMENT_TYPES.map((t) => (
@@ -624,7 +611,6 @@ function EmployeeModal({
               <select
                 className="input"
                 value={departmentId}
-                disabled={rowLocked}
                 onChange={(e) => setDepartmentId(e.target.value)}
               >
                 <option value="">No department</option>
@@ -642,7 +628,6 @@ function EmployeeModal({
                 type="number"
                 min="0"
                 value={capacity}
-                disabled={rowLocked}
                 onChange={(e) => setCapacity(e.target.value)}
               />
             </div>
@@ -679,66 +664,58 @@ function EmployeeModal({
                       <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: d.color }} />
                       {d.name}
                     </span>
-                    {!rowLocked && (
-                      <button
-                        className="shrink-0 text-ink-400 hover:text-rose-600"
-                        title="Remove from Workstream"
-                        disabled={removeWorkstreamMember.isPending}
-                        onClick={() =>
-                          removeWorkstreamMember.mutate({ departmentId: d.id, profileId: person.user_id })
-                        }
-                      >
-                        <UserMinus size={15} />
-                      </button>
-                    )}
+                    <button
+                      className="shrink-0 text-ink-400 hover:text-rose-600"
+                      title="Remove from Workstream"
+                      disabled={removeWorkstreamMember.isPending}
+                      onClick={() =>
+                        removeWorkstreamMember.mutate({ departmentId: d.id, profileId: person.user_id })
+                      }
+                    >
+                      <UserMinus size={15} />
+                    </button>
                   </li>
                 ))}
               </ul>
             )}
-            {!rowLocked && (
-              <div className="flex gap-2">
-                <select
-                  className="input"
-                  value={addWorkstreamId}
-                  onChange={(e) => setAddWorkstreamId(e.target.value)}
-                >
-                  <option value="">Add a workstream…</option>
-                  {availableWorkstreams.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  className="btn-primary shrink-0"
-                  disabled={!addWorkstreamId || addWorkstreamMember.isPending || !viewer}
-                  onClick={() => {
-                    addWorkstreamMember.mutate({
-                      org_id: person.org_id,
-                      department_id: addWorkstreamId,
-                      profile_id: person.user_id,
-                      added_by: viewer!.user_id,
-                    })
-                    setAddWorkstreamId('')
-                  }}
-                >
-                  <UserPlus size={15} /> Add
-                </button>
-              </div>
-            )}
+            <div className="flex gap-2">
+              <select
+                className="input"
+                value={addWorkstreamId}
+                onChange={(e) => setAddWorkstreamId(e.target.value)}
+              >
+                <option value="">Add a workstream…</option>
+                {availableWorkstreams.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="btn-primary shrink-0"
+                disabled={!addWorkstreamId || addWorkstreamMember.isPending || !viewer}
+                onClick={() => {
+                  addWorkstreamMember.mutate({
+                    org_id: person.org_id,
+                    department_id: addWorkstreamId,
+                    profile_id: person.user_id,
+                    added_by: viewer!.user_id,
+                  })
+                  setAddWorkstreamId('')
+                }}
+              >
+                <UserPlus size={15} /> Add
+              </button>
+            </div>
           </div>
 
-          {rowLocked ? (
-            <p className="text-sm text-ink-500">Only an admin can edit this person.</p>
-          ) : (
-            <button
-              className="btn-primary w-full"
-              disabled={!fullName.trim() || update.isPending || updateRate.isPending}
-              onClick={() => void saveDetails()}
-            >
-              <Check size={16} /> Save changes
-            </button>
-          )}
+          <button
+            className="btn-primary w-full"
+            disabled={!fullName.trim() || update.isPending || updateRate.isPending}
+            onClick={() => void saveDetails()}
+          >
+            <Check size={16} /> Save changes
+          </button>
           {done && <p className="text-sm text-brand-700">Saved.</p>}
         </div>
       )}

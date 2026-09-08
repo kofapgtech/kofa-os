@@ -38,7 +38,7 @@ A lead's authority is scoped to their workstream for approvals, but their *visib
 
 Everything Staff has, plus:
 
-- **Admin**, narrowed to the roster — inviting people, editing details, rates, workstream membership and attachments
+- **Admin** — the full roster: inviting anyone, editing anyone, setting any role, rates, workstream membership and attachments
 - **Payroll** — reviewing a pay period and recording what was paid
 - **Money** — sees rates, costs and budget figures everywhere they appear
 
@@ -49,7 +49,7 @@ HR also manages workstreams — creating, renaming, deleting and staffing them �
 
 ### Executive
 
-Everything a Workstream lead has, plus the full **Admin** section including **Workstreams**. In practice an executive can do everything an admin can except create, invite or delete a user identity — and except Payroll, which is HR and admins only.
+Everything a Workstream lead has, plus the full **Admin** section including **Workstreams**, and the same roster powers as an admin — including inviting people. The one thing an executive does not get is **Payroll**, which is HR and admins only.
 
 ### Admin
 
@@ -68,6 +68,7 @@ The full app. Everything above, plus inviting and removing people, and every adm
 | Timesheet → Approvals | — | Yes | — | Yes | Yes |
 | Payroll | — | — | Yes | — | Yes |
 | Admin → Employees | — | — | Yes | Yes | Yes |
+| Invite an employee | — | — | Yes | Yes | Yes |
 | Admin → Workstreams | — | — | Yes | Yes | Yes |
 | Workspace settings | Owner only | Owner only | Owner only | Owner only | Owner only |
 | Money: rates, costs, budgets | — | Yes | Yes | Yes | Yes |
@@ -83,8 +84,8 @@ The full app. Everything above, plus inviting and removing people, and every adm
 
 An admin does it from **Admin → Employees**: open the person, change Role, save. It takes effect the next time they load the app.
 
-> [!ROLE] Admins only
-> Executives can edit most things about a person but cannot create or delete the underlying login.
+> [!ROLE] Admins, executives and HR
+> All three can change anyone's role, including their own. Staff and Workstream leads cannot change an administrative field on any profile, their own included.
 
 ## Why you might see less than a colleague
 
