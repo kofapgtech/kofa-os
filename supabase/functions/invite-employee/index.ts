@@ -80,11 +80,32 @@ Deno.serve(async (req) => {
     // Service role - the only client allowed to create auth users or bypass RLS.
     const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
 
+    // Which workspace is this invite for? Ask the database rather than guessing.
+    //
+    // current_org_id() is the same function every RLS policy uses: the caller's
+    // active_workspace if they have one, otherwise their oldest active
+    // membership. Calling it through callerClient evaluates it as the caller,
+    // so there is one definition of "the workspace I am in" rather than a
+    // second one reimplemented here that could drift from it.
+    //
+    // This matters because a person can hold memberships in several
+    // workspaces. Picking the wrong one would stamp the wrong org_id onto the
+    // invitee's metadata, and the on_auth_user_created trigger builds their
+    // profile from exactly that.
+    const { data: callerOrgId, error: orgError } = await callerClient.rpc('current_org_id')
+    if (orgError || !callerOrgId) {
+      return json({ error: 'No active workspace for caller' }, 403)
+    }
+
+    // profiles is keyed by (user_id, org_id) — it has no `id` column at all.
+    // Selecting `id` here made every invite fail with "No profile for caller".
     const { data: callerProfile, error: callerError } = await admin
       .from('profiles')
-      .select('id, org_id, role')
-      .eq('id', user.id)
-      .single()
+      .select('user_id, org_id, role')
+      .eq('user_id', user.id)
+      .eq('org_id', callerOrgId)
+      .eq('is_active', true)
+      .maybeSingle()
     if (callerError || !callerProfile) return json({ error: 'No profile for caller' }, 403)
     if (!ALLOWED_CALLER_ROLES.includes(callerProfile.role)) {
       return json({ error: 'Only admins or HR can invite employees' }, 403)
