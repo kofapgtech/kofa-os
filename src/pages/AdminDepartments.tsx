@@ -47,7 +47,7 @@ export function AdminDepartments() {
 
   return (
     <div>
-      <PageHeader
+      <PageHeader helpSlug="admin-workstreams"
         title="Workstreams"
         subtitle="Company-wide teams. Tasks get routed to a Workstream instead of a project's roster; its lead assigns the work from there."
         actions={

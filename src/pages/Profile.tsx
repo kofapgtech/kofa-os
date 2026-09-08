@@ -127,7 +127,7 @@ export function ProfilePage() {
 
   return (
     <div className="max-w-3xl">
-      <PageHeader title="My profile" subtitle="Your account, your work at a glance, and your login." />
+      <PageHeader helpSlug="profile" title="My profile" subtitle="Your account, your work at a glance, and your login." />
 
       <div className="mb-5 card p-5">
         <div className="flex flex-wrap items-start gap-4">

@@ -25,6 +25,7 @@ import { WorkspaceSettings } from '@/pages/WorkspaceSettings'
 import { Portal } from '@/pages/Portal'
 import { Tickets } from '@/pages/Tickets'
 import { ManageTickets } from '@/pages/ManageTickets'
+import { Docs } from '@/pages/Docs'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -80,6 +81,8 @@ export default function App() {
               <Route path="/notifications" element={<NotificationsPage />} />
               <Route path="/profile" element={<ProfilePage />} />
               <Route path="/settings" element={<WorkspaceSettings />} />
+              <Route path="/docs" element={<Docs />} />
+              <Route path="/docs/:slug" element={<Docs />} />
             </Route>
 
             <Route path="*" element={<Navigate to="/" replace />} />

@@ -122,7 +122,7 @@ export function ManageTickets() {
 
   return (
     <>
-      <PageHeader
+      <PageHeader helpSlug="tickets"
         title="Manage tickets"
         subtitle="Every request raised in this workspace."
       />

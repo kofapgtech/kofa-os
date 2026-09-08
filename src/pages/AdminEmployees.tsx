@@ -53,7 +53,7 @@ export function AdminEmployees() {
 
   return (
     <div>
-      <PageHeader title="Employees" subtitle="Invite employees and manage the roster." />
+      <PageHeader helpSlug="admin-employees" title="Employees" subtitle="Invite employees and manage the roster." />
       <div className="grid gap-4 xl:grid-cols-2">
         {/* Executive deliberately excluded from inviting - that stays admin/HR
             only. Only a true admin can invite an admin/executive/HR

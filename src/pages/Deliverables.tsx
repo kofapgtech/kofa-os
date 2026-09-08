@@ -62,7 +62,7 @@ export function Deliverables() {
 
   return (
     <div>
-      <PageHeader
+      <PageHeader helpSlug="deliverables"
         title="Deliverables"
         subtitle="Every work product, and exactly who has the ball."
         actions={

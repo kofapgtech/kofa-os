@@ -112,7 +112,7 @@ export function MyWork() {
 
   return (
     <div>
-      <PageHeader
+      <PageHeader helpSlug="my-work"
         title={`Good to see you, ${profile?.full_name?.split(' ')[0]}`}
         subtitle={
           running

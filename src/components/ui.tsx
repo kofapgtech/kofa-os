@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { AlertTriangle, ChevronDown, ChevronUp, ChevronsUpDown, X } from 'lucide-react'
 import { burnTone, initials } from '@/lib/format'
+import { HelpLink } from '@/components/docs/HelpLink'
 
 /** Standard header row for a Modal: icon + title + close button. */
 export function ModalHeader({ title, icon, onClose }: { title: string; icon: ReactNode; onClose: () => void }) {
@@ -197,15 +198,25 @@ export function PageHeader({
   title,
   subtitle,
   actions,
+  helpSlug,
 }: {
   title: string
   subtitle?: ReactNode
   actions?: ReactNode
+  /** Slug of the docs article explaining this screen. Renders a `?` beside the
+   *  title that deep-links to it. Every page goes through PageHeader, so this
+   *  one prop is the whole cost of putting contextual help on a screen — and
+   *  HelpLink renders nothing when the slug has no article, so a page can point
+   *  at a doc that hasn't been written yet without shipping a dead link. */
+  helpSlug?: string
 }) {
   return (
     <div className="flex flex-wrap items-start justify-between gap-3 mb-5">
       <div>
-        <h1 className="text-xl font-semibold text-ink-900">{title}</h1>
+        <div className="flex items-center gap-1.5">
+          <h1 className="text-xl font-semibold text-ink-900">{title}</h1>
+          {helpSlug && <HelpLink slug={helpSlug} />}
+        </div>
         {subtitle && <p className="mt-0.5 text-sm text-ink-500">{subtitle}</p>}
       </div>
       {actions && <div className="flex items-center gap-2">{actions}</div>}

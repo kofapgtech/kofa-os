@@ -45,7 +45,7 @@ export function Accounts() {
 
   return (
     <div>
-      <PageHeader
+      <PageHeader helpSlug="accounts"
         title="Accounts"
         subtitle="Your own work, your clients, and their read-only portal links."
         actions={

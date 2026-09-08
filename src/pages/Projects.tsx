@@ -23,7 +23,7 @@ export function Projects() {
 
   return (
     <div>
-      <PageHeader
+      <PageHeader helpSlug="projects"
         title="Projects"
         subtitle={
           hasFinancialAccess
