@@ -22,7 +22,7 @@ The roster: "Invite employees and manage the roster." Admins, executives and HR.
 | --- | --- |
 | Role | Decides everything they can see — [Roles and what each can see](/docs/roles-and-access) |
 | Employment type | Employee or contractor. Contractors go through timesheet approval; employees do not |
-| Department | Their workstream. Without one they will not appear in hour-allocation pickers |
+| Workstream | Tick every workstream they are staffed on and star one as **Primary**. The starred one becomes their Department; the rest staff them for hour allocation too. With none, they will not appear in hour-allocation pickers |
 | Title | Shows next to their name everywhere |
 | Capacity (h/wk) | Defaults to 40; drives utilization on the [Command centre](/docs/command-centre) |
 
@@ -35,7 +35,9 @@ The roster: "Invite employees and manage the roster." Admins, executives and HR.
 
 Click a row. Up to three tabs:
 
-**Details** — full name, title, role, employment type, department, capacity, and **Rate ($/h)** for admins and HR. Email is never editable. **Save changes**.
+**Details** — full name, title, role, employment type, workstreams, capacity, and **Rate ($/h)** for admins and HR. Email is never editable. **Save changes**.
+
+**Workstream** works exactly as it does on the invite form: one field, a checkbox per workstream, and a star marking the primary. The starred workstream is their Department; every other ticked one staffs them for hour allocation on that workstream's tasks as well. Untick to unstaff. Nothing is written until **Save changes**.
 
 **Attachments** — contracts, signed documents, anything belonging to that person. **Add file** to upload; the X removes one permanently ("This removes the file permanently.").
 
