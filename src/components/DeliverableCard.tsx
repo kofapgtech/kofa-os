@@ -1,6 +1,6 @@
-import { Paperclip } from 'lucide-react'
+import { Check, Paperclip } from 'lucide-react'
 import type { Deliverable, Profile } from '@/lib/types'
-import { STAGE_CLASS, STAGE_LABEL, shortDate } from '@/lib/format'
+import { STAGE_CLASS, STAGE_LABEL, isPastDue, shortDate } from '@/lib/format'
 import { Avatar } from './ui'
 
 /** One deliverable, as shown on the kanban board and a project's Deliverables
@@ -27,7 +27,7 @@ export function DeliverableCard({
   onClick: () => void
 }) {
   const nameOf = (id: string | null) => people.find((p) => p.user_id === id)?.full_name
-  const overdue = !!d.due_date && d.stage !== 'approved' && new Date(d.due_date) < new Date()
+  const overdue = d.stage !== 'approved' && isPastDue(d.due_date)
 
   return (
     <button
@@ -46,6 +46,18 @@ export function DeliverableCard({
       <div className="mt-2.5 flex items-center gap-1">
         <Avatar name={nameOf(d.owner_id)} size={18} />
         <Avatar name={nameOf(d.reviewer_id)} size={18} />
+        {/* Acceptance is the money event, separate from the stage board this
+            card is grouped by — a deliverable can sit in client_review and
+            already have had its fee released, or vice versa. */}
+        {d.accepted_at && (
+          <span
+            className="ml-1 flex items-center gap-0.5 text-emerald-600"
+            title="Fee released to whoever earned it"
+          >
+            <Check size={12} />
+            <span className="text-[11px] font-medium">Paid out</span>
+          </span>
+        )}
         {attachmentCount > 0 && (
           <span
             className="ml-1 flex items-center gap-0.5 text-ink-400"

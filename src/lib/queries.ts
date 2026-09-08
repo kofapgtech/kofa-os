@@ -50,8 +50,21 @@ import type {
   WorkstreamBudgetRow,
 } from './types'
 
-/** Anything that changes hours also changes money — invalidate together. */
-export const TIME_DEPENDENT_KEYS = [['budgets'], ['time-entries'], ['utilization'], ['dept-load']]
+/** Anything that changes hours also changes money — invalidate together.
+ *
+ *  timesheet-weeks and payroll-entries belong here too: v_timesheet_weeks
+ *  derives total_minutes from time_entries, but the timesheet_weeks row itself
+ *  is untouched by a log or a delete, so the realtime subscription never fires
+ *  either. Without these, logging 3h leaves the approval card on the same
+ *  screen showing the old total indefinitely. */
+export const TIME_DEPENDENT_KEYS = [
+  ['budgets'],
+  ['time-entries'],
+  ['utilization'],
+  ['dept-load'],
+  ['timesheet-weeks'],
+  ['payroll-entries'],
+]
 
 function unwrap<T>(data: T | null, error: { message: string } | null): T {
   if (error) throw new Error(error.message)

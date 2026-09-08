@@ -77,18 +77,58 @@ export function minutesToClock(totalMinutes: number): string {
   return `${h}:${String(m).padStart(2, '0')}`
 }
 
+/** A bare calendar date, with no time and no zone: due_date, period_start,
+ *  start_date and friends are all DATE columns. */
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
+
+/** Date-only values must be rendered in UTC.
+ *
+ *  `new Date('2026-09-01')` is parsed as UTC midnight, and toLocaleDateString
+ *  then renders it in LOCAL time — which in New York is 20:00 on Aug 31, so
+ *  the date comes out a day early for everyone west of Greenwich. A pay period
+ *  of Sep 1-15 printed on an invoice as "Aug 31 - Sep 14".
+ *
+ *  Timestamps (started_at, created_at) genuinely carry a zone and must stay
+ *  local, so only bare dates get this treatment. weekRange() below has always
+ *  done it this way. */
+function dateParts(value: string) {
+  const bare = DATE_ONLY.test(value)
+  return {
+    date: new Date(bare ? `${value}T00:00:00Z` : value),
+    zone: bare ? { timeZone: 'UTC' as const } : {},
+  }
+}
+
 export function shortDate(value: string | null | undefined): string {
   if (!value) return '—'
-  return new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  const { date, zone } = dateParts(value)
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', ...zone })
 }
 
 export function longDate(value: string | null | undefined): string {
   if (!value) return '—'
-  return new Date(value).toLocaleDateString('en-US', {
+  const { date, zone } = dateParts(value)
+  return date.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
+    ...zone,
   })
+}
+
+/** Today as YYYY-MM-DD in the reader's own timezone, for comparing against
+ *  DATE columns. */
+export function todayLocal(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** Overdue means the due DATE has passed, not that UTC midnight has.
+ *  `new Date(due_date) < new Date()` marks a task due today as overdue from
+ *  the moment the reader's day begins, because the date parses as UTC
+ *  midnight. Comparing the strings keeps it a calendar question. */
+export function isPastDue(due: string | null | undefined): boolean {
+  return !!due && due < todayLocal()
 }
 
 export function relativeTime(value: string): string {

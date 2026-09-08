@@ -517,7 +517,7 @@ export function AppShell() {
             <div className="absolute inset-0 bg-brand-800/40" onClick={() => setMobileNav(false)} />
             <div className="absolute left-0 top-0 flex h-full w-64 flex-col bg-white p-3">
               <div className="mb-3 flex justify-end">
-                <button className="btn-ghost !px-2.5" onClick={() => setMobileNav(false)}>
+                <button className="btn-ghost !px-2.5" aria-label="Close" onClick={() => setMobileNav(false)}>
                   <X size={18} />
                 </button>
               </div>

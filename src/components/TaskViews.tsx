@@ -17,17 +17,7 @@ import {
   X,
 } from 'lucide-react'
 import type { Profile, Task, TaskHourAllocation, TaskStatus, TaskTrackingMode } from '@/lib/types'
-import {
-  PRIORITY_CLASS,
-  PRIORITY_OPTION_CLASS,
-  TASK_STATUS_CLASS,
-  TASK_STATUS_LABEL,
-  TASK_STATUS_ORDER,
-  hours,
-  money,
-  relativeTime,
-  shortDate,
-} from '@/lib/format'
+import { PRIORITY_CLASS, PRIORITY_OPTION_CLASS, TASK_STATUS_CLASS, TASK_STATUS_LABEL, TASK_STATUS_ORDER, hours, isPastDue, money, relativeTime, shortDate } from '@/lib/format'
 import {
   useCreateTask,
   useDecideTimeExtension,
@@ -534,7 +524,7 @@ function WorkstreamTable({
                           {!projCollapsed &&
                             sorted.map((t) => {
                               const done = t.status === 'done'
-                              const overdue = t.due_date && !done && new Date(t.due_date) < new Date()
+                              const overdue = !done && isPastDue(t.due_date)
                               const urgent = t.priority === 'urgent' && !done
                               return (
                                 <tr
@@ -684,7 +674,7 @@ function ListView({
           <tbody className="divide-y divide-cream-200">
             {sorted.map((t) => {
               const done = t.status === 'done'
-              const overdue = t.due_date && !done && new Date(t.due_date) < new Date()
+              const overdue = !done && isPastDue(t.due_date)
               const urgent = t.priority === 'urgent' && !done
               return (
                 <tr
@@ -902,7 +892,7 @@ function Drawer({ title, onClose, children }: { title: string; onClose: () => vo
       <div className="relative flex h-full w-full max-w-md flex-col overflow-y-auto bg-white shadow-xl">
         <div className="sticky top-0 flex items-center justify-between border-b border-cream-300 bg-white px-5 py-3.5">
           <p className="text-sm font-semibold">{title}</p>
-          <button className="btn-ghost !px-2.5" onClick={onClose}>
+          <button className="btn-ghost !px-2.5" onClick={onClose} aria-label="Close">
             <X size={16} />
           </button>
         </div>

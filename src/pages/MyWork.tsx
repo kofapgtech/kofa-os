@@ -16,7 +16,7 @@ import {
 } from '@/lib/queries'
 import { TaskViews } from '@/components/TaskViews'
 import { EmptyState, PageHeader, Spinner, StatCard } from '@/components/ui'
-import { STAGE_CLASS, STAGE_LABEL, hours, minutesToHours, shortDate } from '@/lib/format'
+import { STAGE_CLASS, STAGE_LABEL, hours, isPastDue, minutesToHours, shortDate } from '@/lib/format'
 
 export function MyWork() {
   const { profile } = useAuth()
@@ -48,7 +48,7 @@ export function MyWork() {
     [tasks, myTaskIds],
   )
   const openTasks = myTasks.filter((t) => t.status !== 'done')
-  const overdue = openTasks.filter((t) => t.due_date && new Date(t.due_date) < new Date())
+  const overdue = openTasks.filter((t) => isPastDue(t.due_date))
   const weekHours = myWeek.reduce((sum, e) => sum + minutesToHours(e.duration_minutes), 0)
   const billableHours = myWeek
     .filter((e) => e.is_billable)

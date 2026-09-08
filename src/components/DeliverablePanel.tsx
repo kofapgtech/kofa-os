@@ -186,16 +186,37 @@ export function DeliverablePanel({
     }
   }
 
+  /** A link attachment is typed by one member and clicked by another — often a
+   *  lead during review — so only http(s) may be stored or opened. Without this
+   *  a `javascript:` or `data:` URL is accepted verbatim and handed to
+   *  window.open. A bare "example.com" is treated as https rather than
+   *  rejected, since that is what people actually paste. */
+  function safeHttpUrl(raw: string): string | null {
+    const candidate = /^[a-z][a-z0-9+.-]*:/i.test(raw) ? raw : `https://${raw}`
+    try {
+      const parsed = new URL(candidate)
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.toString() : null
+    } catch {
+      return null
+    }
+  }
+
   async function saveLink() {
     if (!linkInput.trim() || !profile) return
+    const safe = safeHttpUrl(linkInput.trim())
+    if (!safe) {
+      setAttachError("That doesn't look like a web address — links must start with http:// or https://")
+      return
+    }
+    setAttachError(null)
     await addAttachment.mutateAsync({
       org_id: deliverable.org_id,
       deliverable_id: deliverable.id,
       added_by: profile.user_id,
       kind: 'link',
       file_path: null,
-      url: linkInput.trim(),
-      label: linkInput.trim(),
+      url: safe,
+      label: safe,
       file_size: null,
       content_type: null,
     })
@@ -206,7 +227,13 @@ export function DeliverablePanel({
   async function openAttachment(a: DeliverableAttachment) {
     setAttachError(null)
     if (a.kind === 'link') {
-      window.open(a.url!, '_blank', 'noopener')
+      // Re-checked on the way out as well as in: rows predate the check above.
+      const safe = safeHttpUrl(a.url ?? '')
+      if (!safe) {
+        setAttachError('This link is stored in an unsupported format and was not opened.')
+        return
+      }
+      window.open(safe, '_blank', 'noopener,noreferrer')
       return
     }
     const { data, error: signError } = await supabase.storage
@@ -253,7 +280,7 @@ export function DeliverablePanel({
       <div className="relative flex h-full w-full max-w-lg flex-col overflow-y-auto bg-white shadow-xl">
         <div className="sticky top-0 flex items-center justify-between border-b border-cream-300 bg-white px-5 py-3.5">
           <p className="text-sm font-semibold">Deliverable</p>
-          <button className="btn-ghost !px-2.5" onClick={onClose}>
+          <button className="btn-ghost !px-2.5" onClick={onClose} aria-label="Close">
             <X size={16} />
           </button>
         </div>

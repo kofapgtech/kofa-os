@@ -11,7 +11,7 @@ export function ModalHeader({ title, icon, onClose }: { title: string; icon: Rea
         {icon}
         <p className="text-sm font-semibold text-ink-900">{title}</p>
       </div>
-      <button className="btn-ghost !px-2.5" onClick={onClose}>
+      <button className="btn-ghost !px-2.5" onClick={onClose} aria-label="Close">
         <X size={16} />
       </button>
     </div>
