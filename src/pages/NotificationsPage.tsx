@@ -24,7 +24,7 @@ export function NotificationsPage() {
 
   return (
     <div>
-      <PageHeader
+      <PageHeader helpSlug="notifications"
         title="Notifications"
         subtitle={unread > 0 ? `${unread} unread` : 'All caught up'}
         actions={

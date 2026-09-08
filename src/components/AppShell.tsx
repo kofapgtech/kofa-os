@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
+  BookOpen,
   Building2,
   CalendarClock,
   FileCheck2,
@@ -440,6 +441,24 @@ export function AppShell() {
     </NavLink>
   )
 
+  /** Sits directly above the ticket button, deliberately quieter than it: the
+   *  docs are where most questions are answered, but a ticket is the thing
+   *  someone needs when they are actually stuck, so it keeps the emphasis. */
+  const helpLink = (
+    <NavLink
+      to="/docs"
+      onClick={() => setMobileNav(false)}
+      className={({ isActive }) =>
+        `flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors ${
+          isActive ? 'bg-cream-200 text-ink-900' : 'text-ink-600 hover:bg-cream-200'
+        }`
+      }
+    >
+      <BookOpen size={17} />
+      Help &amp; docs
+    </NavLink>
+  )
+
   return (
     <div className="min-h-screen bg-cream-100">
       {/* Forest-green bar, mirroring the kofapg.com nav. */}
@@ -487,7 +506,10 @@ export function AppShell() {
             the page behind them scrolls. */}
         <aside className="sticky top-16 hidden h-[calc(100vh-4rem)] w-60 shrink-0 flex-col border-r border-cream-300 bg-white p-3 lg:flex">
           <div className="min-h-0 flex-1 overflow-y-auto">{nav}</div>
-          <div className="mt-3 shrink-0 border-t border-cream-300 pt-3">{ticketCta}</div>
+          <div className="mt-3 shrink-0 space-y-1.5 border-t border-cream-300 pt-3">
+            {helpLink}
+            {ticketCta}
+          </div>
         </aside>
 
         {mobileNav && (
@@ -500,7 +522,10 @@ export function AppShell() {
                 </button>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto">{nav}</div>
-              <div className="mt-3 shrink-0 border-t border-cream-300 pt-3">{ticketCta}</div>
+              <div className="mt-3 shrink-0 space-y-1.5 border-t border-cream-300 pt-3">
+            {helpLink}
+            {ticketCta}
+          </div>
             </div>
           </div>
         )}

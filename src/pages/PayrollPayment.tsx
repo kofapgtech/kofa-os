@@ -70,7 +70,7 @@ export function PayrollPayment() {
 
   return (
     <div>
-      <PageHeader title="Payment" subtitle="Review a pay period's hours, deliverable fees and billable spend, by employee and by project." />
+      <PageHeader helpSlug="payroll-payment" title="Payment" subtitle="Review a pay period's hours, deliverable fees and billable spend, by employee and by project." />
 
       {periods.length === 0 ? (
         <EmptyState title="No pay periods yet." />

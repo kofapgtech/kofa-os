@@ -104,7 +104,7 @@ export function CommandCenter() {
 
   return (
     <div>
-      <PageHeader
+      <PageHeader helpSlug="command-centre"
         title="Command centre"
         subtitle="Capacity, budget health, and what is stuck — across all six departments."
       />

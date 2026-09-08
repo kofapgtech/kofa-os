@@ -49,7 +49,7 @@ export function Tickets() {
 
   return (
     <>
-      <PageHeader
+      <PageHeader helpSlug="tickets"
         title="Submit a ticket"
         subtitle="Raise a request with the admin team and follow it here."
         actions={

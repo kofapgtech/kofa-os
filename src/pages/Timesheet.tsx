@@ -135,7 +135,7 @@ export function Timesheet() {
 
   return (
     <div>
-      <PageHeader
+      <PageHeader helpSlug="timesheet"
         title="Timesheet"
         subtitle={`${shortDate(weekStart.toISOString())} – ${shortDate(
           new Date(weekEnd.getTime() - 86_400_000).toISOString(),

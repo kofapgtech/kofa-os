@@ -115,7 +115,7 @@ export function TimesheetApprovals() {
 
   return (
     <div>
-      <PageHeader
+      <PageHeader helpSlug="timesheet-approvals"
         title="Timesheet approvals"
         subtitle="Contractor weeks are submitted automatically once the week ends, confirmed by the workstream lead, then cleared by the managing director before finance can pay them."
       />

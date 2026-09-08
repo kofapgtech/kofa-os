@@ -56,7 +56,7 @@ export function PayrollRecords() {
 
   return (
     <div>
-      <PageHeader title="Records" subtitle="Every payroll payment that's been recorded, most recent first." />
+      <PageHeader helpSlug="payroll-records" title="Records" subtitle="Every payroll payment that's been recorded, most recent first." />
 
       <div className="mb-4 flex flex-wrap gap-3">
         <div>

@@ -131,7 +131,7 @@ export function ProjectDetail() {
         <ArrowLeft size={15} /> All projects
       </Link>
 
-      <PageHeader
+      <PageHeader helpSlug="inside-a-project"
         title={budget.name}
         subtitle={
           <>

@@ -140,7 +140,7 @@ export function WorkspaceSettings() {
 
   return (
     <div className="max-w-3xl">
-      <PageHeader
+      <PageHeader helpSlug="workspace-settings"
         title="Workspace"
         subtitle={`${workspace.name} · kofaos.app/w/${workspace.slug}`}
         actions={
