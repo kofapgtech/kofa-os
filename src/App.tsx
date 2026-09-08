@@ -15,13 +15,14 @@ import { Deliverables } from '@/pages/Deliverables'
 import { Timesheet } from '@/pages/Timesheet'
 import { TimesheetApprovals } from '@/pages/TimesheetApprovals'
 import { Accounts } from '@/pages/Accounts'
-import { AdminEmployees } from '@/pages/AdminEmployees'
+import { AdminContractors, AdminEmployees } from '@/pages/AdminEmployees'
 import { AdminDepartments } from '@/pages/AdminDepartments'
 import { PayrollPayment } from '@/pages/PayrollPayment'
 import { PayrollRecords } from '@/pages/PayrollRecords'
 import { NotificationsPage } from '@/pages/NotificationsPage'
 import { ProfilePage } from '@/pages/Profile'
-import { WorkspaceSettings } from '@/pages/WorkspaceSettings'
+import { Settings } from '@/pages/Settings'
+import { Onboarding } from '@/pages/Onboarding'
 import { Portal } from '@/pages/Portal'
 import { Tickets } from '@/pages/Tickets'
 import { ManageTickets } from '@/pages/ManageTickets'
@@ -43,6 +44,17 @@ export default function App() {
             {/* Anonymous, token-scoped client view. No session required. */}
             <Route path="/portal/:token" element={<Portal />} />
             <Route path="/login" element={<Login />} />
+            {/* Inside ProtectedRoute but OUTSIDE AppShell: the wizard brings its
+                own chrome, and the sidebar would offer a new hire a dozen places
+                to go before they have any idea what those places are. */}
+            <Route
+              path="/onboarding"
+              element={
+                <ProtectedRoute>
+                  <Onboarding />
+                </ProtectedRoute>
+              }
+            />
 
             <Route
               element={
@@ -72,6 +84,7 @@ export default function App() {
               />
               <Route path="/admin" element={<Navigate to="/admin/employees" replace />} />
               <Route path="/admin/employees" element={<AdminEmployees />} />
+              <Route path="/admin/contractors" element={<AdminContractors />} />
               <Route path="/admin/workstreams" element={<AdminDepartments />} />
               <Route path="/payroll" element={<Navigate to="/payroll/payment" replace />} />
               <Route path="/payroll/payment" element={<PayrollPayment />} />
@@ -80,7 +93,7 @@ export default function App() {
               <Route path="/tickets/manage" element={<ManageTickets />} />
               <Route path="/notifications" element={<NotificationsPage />} />
               <Route path="/profile" element={<ProfilePage />} />
-              <Route path="/settings" element={<WorkspaceSettings />} />
+              <Route path="/settings" element={<Settings />} />
               <Route path="/docs" element={<Docs />} />
               <Route path="/docs/:slug" element={<Docs />} />
             </Route>

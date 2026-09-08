@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { Link, NavLink, Navigate, Outlet, useNavigate } from 'react-router-dom'
 import {
   BookOpen,
   Building2,
@@ -33,6 +33,8 @@ import { GlobalTimer } from './GlobalTimer'
 import { Logo } from './Logo'
 import { NotificationBell } from './NotificationBell'
 import { Avatar } from './ui'
+import { SetupBanner } from './onboarding/SetupBanner'
+import { useOnboardingPlan } from '@/lib/onboarding'
 
 type NavGate =
   | 'leadership'
@@ -85,6 +87,7 @@ const NAV: NavItem[] = [
     gate: 'admin',
     children: [
       { to: '/admin/employees', label: 'Employees' },
+      { to: '/admin/contractors', label: 'Contractors' },
       { to: '/admin/workstreams', label: 'Workstreams', gate: 'workstreams' },
     ],
   },
@@ -169,7 +172,10 @@ function WorkspaceMenu() {
                   type="button"
                   onClick={() => {
                     setOpen(false)
-                    navigate('/settings')
+                    // Deep-links to the tab rather than the page, so an owner
+                    // who also administers onboarding still lands on the half
+                    // this menu item names.
+                    navigate('/settings?tab=workspace')
                   }}
                   className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-ink-800 hover:bg-cream-200"
                 >
@@ -317,9 +323,11 @@ export function AppShell() {
     isHR,
     isPayrollAdmin,
     isContractor,
+    isOwner,
     canManageWorkstreams,
   } = useAuth()
   const navigate = useNavigate()
+  const { data: isPlatformAdmin = false } = useIsPlatformAdmin()
   const [mobileNav, setMobileNav] = useState(false)
 
   // Currency is a workspace setting. Applied here, in render, rather than in an
@@ -333,6 +341,22 @@ export function AppShell() {
   // timesheet approval on one screen updates every other open screen
   // (Timesheet, Approvals, Payroll) without a reload.
   useTimesheetWeeksRealtime()
+
+  // Send a brand-new person to the wizard ONCE, on their very first
+  // authenticated load. `onboarding_started_at` is the latch: the wizard stamps
+  // it on mount, so this fires exactly once per person and never again -- which
+  // is what keeps it a destination rather than the hard gate the user ruled out.
+  // After this, the SetupBanner is the only thing that asks.
+  //
+  // The conditions mirror the wizard's own bail-out (it redirects to '/' when
+  // plan.active is false or there are no steps), so the two can't ping-pong.
+  const plan = useOnboardingPlan()
+  const needsFirstVisit =
+    !!profile &&
+    !profile.onboarding_started_at &&
+    plan.active &&
+    !plan.complete &&
+    plan.steps.length > 0
 
   // "Admin" covers three audiences now: full admin/executive access, or
   // HR's narrower roster-only slice of the same section (see
@@ -459,6 +483,37 @@ export function AppShell() {
     </NavLink>
   )
 
+  /** Directly below Help & docs and styled identically to it, so the foot of
+   *  the sidebar reads as three descending levels of loudness: quiet reference
+   *  (docs), quiet configuration (settings), then the one loud call to action
+   *  (tickets).
+   *
+   *  Not in NAV because NAV is the work -- the screens people use to do their
+   *  job -- and this is the workspace's own plumbing. Same reason the ticket
+   *  button and the docs link are pinned here rather than drifting down the
+   *  list as sections are added.
+   *
+   *  The gate is admin / executive / HR (who configure onboarding) plus the
+   *  owner (who configures the workspace itself). It mirrors, rather than
+   *  enforces, the gates inside the page: Settings picks the tabs for the
+   *  viewer, and Postgres refuses the writes. */
+  const settingsLink = canReachAdmin || isOwner || isPlatformAdmin ? (
+    <NavLink
+      to="/settings"
+      onClick={() => setMobileNav(false)}
+      className={({ isActive }) =>
+        `flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors ${
+          isActive ? 'bg-cream-200 text-ink-900' : 'text-ink-600 hover:bg-cream-200'
+        }`
+      }
+    >
+      <Settings size={17} />
+      Settings
+    </NavLink>
+  ) : null
+
+  if (needsFirstVisit) return <Navigate to="/onboarding" replace />
+
   return (
     <div className="min-h-screen bg-cream-100">
       {/* Forest-green bar, mirroring the kofapg.com nav. */}
@@ -508,6 +563,7 @@ export function AppShell() {
           <div className="min-h-0 flex-1 overflow-y-auto">{nav}</div>
           <div className="mt-3 shrink-0 space-y-1.5 border-t border-cream-300 pt-3">
             {helpLink}
+            {settingsLink}
             {ticketCta}
           </div>
         </aside>
@@ -524,13 +580,20 @@ export function AppShell() {
               <div className="min-h-0 flex-1 overflow-y-auto">{nav}</div>
               <div className="mt-3 shrink-0 space-y-1.5 border-t border-cream-300 pt-3">
             {helpLink}
+            {settingsLink}
             {ticketCta}
           </div>
             </div>
           </div>
         )}
 
+        {/* The setup banner lives INSIDE the content column, not across the
+            full width above this row. Full-width would push the sidebar down
+            while leaving its `sticky top-16 h-[calc(100vh-4rem)]` unchanged,
+            so the pinned docs/settings/ticket buttons at its foot would sit
+            below the fold for exactly the people who are still onboarding. */}
         <main className="min-w-0 flex-1 p-4 lg:p-6">
+          <SetupBanner />
           <Outlet />
         </main>
       </div>

@@ -6,6 +6,13 @@ import { supabase } from './supabaseClient'
 import type {
   Account,
   AccountStatus,
+  EmploymentType,
+  OnboardingAgreement,
+  OnboardingAgreementSource,
+  OnboardingProgressRow,
+  OnboardingReadingItem,
+  OnboardingSettings,
+  OnboardingSignature,
   Deliverable,
   DeliverableAttachment,
   DeliverableComment,
@@ -135,6 +142,14 @@ export function useUpdateProfile() {
           | 'last_day_worked'
           | 'rehire_eligible'
           | 'avatar_url'
+          // Self-service fields captured during onboarding. Absent from the
+          // profiles_guard_privileged_columns trigger's pinned list, so a
+          // person can write their own exactly as they can full_name/title.
+          | 'preferred_name'
+          | 'phone'
+          | 'timezone'
+          | 'onboarding_started_at'
+          | 'onboarding_completed_at'
         >
       >
     }) => {
@@ -2496,5 +2511,305 @@ export function useDeleteTicketAttachment() {
       qc.invalidateQueries({ queryKey: ['ticket-attachment-counts'] })
     },
     onError: (err: Error) => toast.error("Couldn't remove attachment", err.message),
+  })
+}
+
+/**
+ * Emails someone a fresh one-time sign-in link.
+ *
+ * This is the answer to the real support case the onboarding flow creates:
+ * Supabase invite links are single-use and expire (24 hours by default), so a
+ * new hire who opens their email on Wednesday finds a link that fails with
+ * nothing but "Email link is invalid or has expired". Re-inviting them cannot
+ * work — GoTrue answers `email_exists` permanently once the auth user is
+ * there — so the fix is a new magic link to the account that already exists.
+ *
+ * `shouldCreateUser: false` matters. Without it this doubles as a
+ * self-service signup for any address an admin mistypes, which on an
+ * org-allowlisted domain would auto-provision a staff profile through
+ * ensure_profile_for_auth_user(). Here we only ever want to reach a person who
+ * is already on the roster.
+ *
+ * Sending this does not touch the caller's own session — it only asks the auth
+ * service to send an email.
+ */
+export function useSendSignInLink() {
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (email: string) => {
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: { shouldCreateUser: false, emailRedirectTo: window.location.origin },
+      })
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: (_d, email) =>
+      toast.success('Sign-in link sent', `${email} can use it once, within the hour.`),
+    onError: (err: Error) => toast.error("Couldn't send the link", err.message),
+  })
+}
+
+// -------------------------------------------------------------- onboarding
+
+/** The workspace's onboarding configuration. Every workspace has a row — the
+ *  20260910160200 migration seeds one, and a trigger gives new workspaces one
+ *  — so `null` here means a genuine read failure or a workspace mid-creation,
+ *  not "not configured yet". Readable by every member: a new hire has to be
+ *  able to read the welcome copy and the step list. */
+export function useOnboardingSettings() {
+  return useQuery({
+    queryKey: ['onboarding-settings'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('onboarding_settings').select('*').maybeSingle()
+      if (error) throw new Error(error.message)
+      return (data ?? null) as OnboardingSettings | null
+    },
+  })
+}
+
+export function useUpdateOnboardingSettings() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  const { profile } = useAuth()
+  return useMutation({
+    mutationFn: async (patch: Partial<Omit<OnboardingSettings, 'org_id' | 'updated_at' | 'updated_by'>>) => {
+      if (!profile) throw new Error('Not signed in')
+      const { error } = await supabase
+        .from('onboarding_settings')
+        .update({ ...patch, updated_by: profile.user_id })
+        .eq('org_id', profile.org_id)
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['onboarding-settings'] }),
+    onError: (err: Error) => toast.error("Couldn't save onboarding settings", err.message),
+  })
+}
+
+/** Every agreement including inactive ones — the admin screen needs to show
+ *  what has been retired, and the wizard filters on is_active itself. */
+export function useOnboardingAgreements() {
+  return useQuery({
+    queryKey: ['onboarding-agreements'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('onboarding_agreements')
+        .select('*')
+        .order('sort_order')
+        .order('title')
+      return unwrap<OnboardingAgreement[]>(data, error)
+    },
+  })
+}
+
+type AgreementInput = {
+  id?: string
+  title: string
+  summary: string | null
+  source: OnboardingAgreementSource
+  body_md: string | null
+  file_path: string | null
+  file_name: string | null
+  applies_to: EmploymentType[]
+  is_required: boolean
+  sort_order: number
+  is_active: boolean
+  /** Detected from the uploaded PDF; 0 for text agreements. */
+  form_field_count?: number
+  /** Set by the caller when the wording changed, so existing signatures stop
+   *  counting and the document is re-signed. Left undefined on an edit that
+   *  only touched metadata (title, ordering, which track it applies to). */
+  version?: number
+}
+
+export function useSaveOnboardingAgreement() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  const { profile } = useAuth()
+  return useMutation({
+    mutationFn: async (input: AgreementInput) => {
+      if (!profile) throw new Error('Not signed in')
+      const { id, ...rest } = input
+      if (id) {
+        const { error } = await supabase.from('onboarding_agreements').update(rest).eq('id', id)
+        if (error) throw new Error(error.message)
+        return id
+      }
+      const { data, error } = await supabase
+        .from('onboarding_agreements')
+        .insert({ ...rest, org_id: profile.org_id, created_by: profile.user_id })
+        .select('id')
+        .single()
+      if (error) throw new Error(error.message)
+      return data.id as string
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['onboarding-agreements'] }),
+    onError: (err: Error) => toast.error("Couldn't save agreement", err.message),
+  })
+}
+
+export function useDeleteOnboardingAgreement() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('onboarding_agreements').delete().eq('id', id)
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['onboarding-agreements'] })
+      qc.invalidateQueries({ queryKey: ['onboarding-signatures'] })
+    },
+    onError: (err: Error) => toast.error("Couldn't delete agreement", err.message),
+  })
+}
+
+export function useOnboardingReading() {
+  return useQuery({
+    queryKey: ['onboarding-reading'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('onboarding_reading')
+        .select('*')
+        .order('sort_order')
+      return unwrap<OnboardingReadingItem[]>(data, error)
+    },
+  })
+}
+
+/** Upsert on (org_id, doc_slug), which is the table's unique key — so the
+ *  picker can tick an article without first knowing whether a row exists. */
+export function useUpsertOnboardingReading() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  const { profile } = useAuth()
+  return useMutation({
+    mutationFn: async (row: {
+      doc_slug: string
+      applies_to: EmploymentType[]
+      is_required: boolean
+      sort_order: number
+    }) => {
+      if (!profile) throw new Error('Not signed in')
+      const { error } = await supabase
+        .from('onboarding_reading')
+        .upsert({ ...row, org_id: profile.org_id }, { onConflict: 'org_id,doc_slug' })
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['onboarding-reading'] }),
+    onError: (err: Error) => toast.error("Couldn't save the reading list", err.message),
+  })
+}
+
+export function useDeleteOnboardingReading() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  return useMutation({
+    mutationFn: async (docSlug: string) => {
+      const { error } = await supabase.from('onboarding_reading').delete().eq('doc_slug', docSlug)
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['onboarding-reading'] }),
+    onError: (err: Error) => toast.error("Couldn't save the reading list", err.message),
+  })
+}
+
+/** Someone's completed steps. Defaults to the signed-in person; passing a
+ *  userId is the admin read, which RLS allows only for admin/executive/HR. */
+export function useOnboardingProgress(userId?: string) {
+  const { profile } = useAuth()
+  const target = userId ?? profile?.user_id
+  return useQuery({
+    queryKey: ['onboarding-progress', target],
+    enabled: !!target,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('onboarding_progress')
+        .select('*')
+        .eq('user_id', target!)
+      return unwrap<OnboardingProgressRow[]>(data, error)
+    },
+  })
+}
+
+/** Idempotent by design: the wizard calls this every time a screen is
+ *  completed, including on a revisit, so an upsert on the composite primary key
+ *  is what keeps a re-read of an article from erroring. */
+export function useCompleteOnboardingStep() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  const { profile } = useAuth()
+  return useMutation({
+    mutationFn: async ({ stepKey, data }: { stepKey: string; data?: Record<string, unknown> }) => {
+      if (!profile) throw new Error('Not signed in')
+      const { error } = await supabase.from('onboarding_progress').upsert(
+        {
+          org_id: profile.org_id,
+          user_id: profile.user_id,
+          step_key: stepKey,
+          completed_at: new Date().toISOString(),
+          data: data ?? {},
+        },
+        { onConflict: 'org_id,user_id,step_key' },
+      )
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['onboarding-progress'] }),
+    onError: (err: Error) => toast.error("Couldn't save your progress", err.message),
+  })
+}
+
+export function useOnboardingSignatures(userId?: string) {
+  const { profile } = useAuth()
+  const target = userId ?? profile?.user_id
+  return useQuery({
+    queryKey: ['onboarding-signatures', target],
+    enabled: !!target,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('onboarding_signatures')
+        .select('*')
+        .eq('user_id', target!)
+        .order('signed_at', { ascending: false })
+      return unwrap<OnboardingSignature[]>(data, error)
+    },
+  })
+}
+
+/** Signs as the signed-in person only — RLS has no admin insert path, so
+ *  nobody can sign on anybody's behalf. The IP is deliberately left to the
+ *  database (it is not knowable in the browser); user_agent is what the client
+ *  can honestly contribute. */
+export function useSignOnboardingAgreement() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  const { profile } = useAuth()
+  return useMutation({
+    mutationFn: async (
+      agreement: OnboardingAgreement & {
+        typedName: string
+        /** Answers typed into the PDF's own fields. Empty for a flat document. */
+        fieldValues?: Record<string, string>
+        /** Path of the completed copy, once it has been uploaded. */
+        filledFilePath?: string | null
+        filledFlattened?: boolean | null
+      },
+    ) => {
+      if (!profile) throw new Error('Not signed in')
+      const { error } = await supabase.from('onboarding_signatures').insert({
+        org_id: profile.org_id,
+        user_id: profile.user_id,
+        agreement_id: agreement.id,
+        agreement_version: agreement.version,
+        agreement_title: agreement.title,
+        typed_name: agreement.typedName,
+        user_agent: navigator.userAgent,
+        field_values: agreement.fieldValues ?? {},
+        filled_file_path: agreement.filledFilePath ?? null,
+        filled_flattened: agreement.filledFlattened ?? null,
+      })
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['onboarding-signatures'] }),
+    onError: (err: Error) => toast.error("Couldn't record your signature", err.message),
   })
 }

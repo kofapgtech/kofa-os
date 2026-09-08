@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import { supabase } from '@/lib/supabaseClient'
-import { Check, ChevronDown, Paperclip, Star, UserPlus, Users2, X } from 'lucide-react'
+import { Check, ChevronDown, Mail, Paperclip, Star, UserPlus, Users2, X } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   useAddEmployeeAttachment,
@@ -12,6 +12,7 @@ import {
   useInviteEmployee,
   useProfileRates,
   useRemoveWorkstreamMember,
+  useSendSignInLink,
   useUpdateCostRate,
   useUpdateProfile,
   useWorkstreamMembers,
@@ -24,6 +25,7 @@ import {
   PageHeader,
   SortableTh,
   Spinner,
+  TabButton,
   sortRows,
   useTableSort,
 } from '@/components/ui'
@@ -151,8 +153,43 @@ function WorkstreamPicker({
   )
 }
 
+// Employees and contractors are one roster in the database — the same
+// profiles table, split by profiles.employment_type — surfaced as two pages
+// so each side can be administered on its own. Both render this component
+// with the type fixed by the route: the list, the empty state and the invite
+// form are all scoped to it, and nothing here can create or show the other
+// kind. Moving someone across is still an edit on their profile (open them,
+// Details tab → Employment type); they disappear from this page and appear
+// on the other one.
+const PAGE_COPY: Record<
+  EmploymentType,
+  { title: string; subtitle: string; inviteLabel: string; emptyTitle: string }
+> = {
+  employee: {
+    title: 'Employees',
+    subtitle: 'Invite employees and manage the roster.',
+    inviteLabel: 'Invite employee',
+    emptyTitle: 'No employees yet.',
+  },
+  contractor: {
+    title: 'Contractors',
+    subtitle: 'Invite contractors and manage the roster.',
+    inviteLabel: 'Invite contractor',
+    emptyTitle: 'No contractors yet.',
+  },
+}
+
 export function AdminEmployees() {
+  return <PeopleAdminPage employmentType="employee" />
+}
+
+export function AdminContractors() {
+  return <PeopleAdminPage employmentType="contractor" />
+}
+
+function PeopleAdminPage({ employmentType }: { employmentType: EmploymentType }) {
   const { isAdminOrExecutive, isHR } = useAuth()
+  const copy = PAGE_COPY[employmentType]
 
   if (!isAdminOrExecutive && !isHR) {
     return <EmptyState title="No admin access" hint="Ask an admin for access to this page." />
@@ -160,14 +197,14 @@ export function AdminEmployees() {
 
   return (
     <div>
-      <PageHeader helpSlug="admin-employees" title="Employees" subtitle="Invite employees and manage the roster." />
+      <PageHeader helpSlug="admin-employees" title={copy.title} subtitle={copy.subtitle} />
       <div className="grid gap-4 xl:grid-cols-2">
         {/* Admin, executive and HR all administer the roster and all invite —
             the same set as is_admin_exec_or_hr() in the database, which is the
             real gate. Anyone who can reach this page can use this card. */}
-        <QuickActionsCard />
+        <QuickActionsCard employmentType={employmentType} />
         <div className="xl:col-span-2">
-          <EmployeesCard />
+          <PeopleCard employmentType={employmentType} />
         </div>
       </div>
     </div>
@@ -186,20 +223,27 @@ function Section({ title, icon, children }: { title: string; icon: ReactNode; ch
   )
 }
 
-function QuickActionsCard() {
+function QuickActionsCard({ employmentType }: { employmentType: EmploymentType }) {
   const [open, setOpen] = useState(false)
+  const copy = PAGE_COPY[employmentType]
 
   return (
     <Section title="Quick actions" icon={<UserPlus size={16} className="text-brand-600" />}>
       <button className="btn-primary w-full" onClick={() => setOpen(true)}>
-        <UserPlus size={16} /> Invite employee
+        <UserPlus size={16} /> {copy.inviteLabel}
       </button>
-      {open && <InviteEmployeeModal onClose={() => setOpen(false)} />}
+      {open && <InviteEmployeeModal employmentType={employmentType} onClose={() => setOpen(false)} />}
     </Section>
   )
 }
 
-function InviteEmployeeModal({ onClose }: { onClose: () => void }) {
+function InviteEmployeeModal({
+  employmentType,
+  onClose,
+}: {
+  employmentType: EmploymentType
+  onClose: () => void
+}) {
   const { profile: viewer } = useAuth()
   const { data: departments = [] } = useDepartments()
   const invite = useInviteEmployee()
@@ -213,7 +257,7 @@ function InviteEmployeeModal({ onClose }: { onClose: () => void }) {
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<UserRole>('staff')
-  const [employmentType, setEmploymentType] = useState<EmploymentType>('employee')
+  const copy = PAGE_COPY[employmentType]
   // Workstream is a multiselect: everything checked here gets staffed, and
   // the one starred as primary becomes their Department (profiles.department_id,
   // set at creation via the invite Edge Function's auth metadata). Anything
@@ -262,7 +306,7 @@ function InviteEmployeeModal({ onClose }: { onClose: () => void }) {
 
   return (
     <Modal onClose={onClose}>
-      <ModalHeader title="Invite employee" icon={<UserPlus size={16} className="text-brand-600" />} onClose={onClose} />
+      <ModalHeader title={copy.inviteLabel} icon={<UserPlus size={16} className="text-brand-600" />} onClose={onClose} />
       <div className="space-y-3">
         <div>
           <label className="label">Full name</label>
@@ -285,20 +329,6 @@ function InviteEmployeeModal({ onClose }: { onClose: () => void }) {
               {assignableRoles.map((r) => (
                 <option key={r} value={r}>
                   {ROLE_LABEL[r]}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="label">Employment type</label>
-            <select
-              className="input"
-              value={employmentType}
-              onChange={(e) => setEmploymentType(e.target.value as EmploymentType)}
-            >
-              {EMPLOYMENT_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {EMPLOYMENT_TYPE_LABEL[t]}
                 </option>
               ))}
             </select>
@@ -351,13 +381,21 @@ function InviteEmployeeModal({ onClose }: { onClose: () => void }) {
   )
 }
 
-function EmployeesCard() {
-  const { data: people = [], isLoading } = useAllProfiles()
+function PeopleCard({ employmentType }: { employmentType: EmploymentType }) {
+  const { data: allPeople = [], isLoading } = useAllProfiles()
   const { data: departments = [] } = useDepartments()
   const { data: rates = [] } = useProfileRates()
+  const copy = PAGE_COPY[employmentType]
+  // The one line that makes this two pages: everything below — sorting,
+  // counts, the empty state — works off this page's half of the roster.
+  const people = useMemo(
+    () => allPeople.filter((p) => p.employment_type === employmentType),
+    [allPeople, employmentType],
+  )
   const [editing, setEditing] = useState<Profile | null>(null)
+  // No Type column: the page you are on IS the type.
   const sort = useTableSort<
-    'name' | 'title' | 'email' | 'role' | 'type' | 'department' | 'capacity' | 'status'
+    'name' | 'title' | 'email' | 'role' | 'department' | 'capacity' | 'status'
   >()
 
   const statusRank = (p: Profile) => (p.termination_date ? 2 : p.is_active ? 0 : 1)
@@ -371,8 +409,6 @@ function EmployeesCard() {
         return p.email.toLowerCase()
       case 'role':
         return ROLE_LABEL[p.role]
-      case 'type':
-        return EMPLOYMENT_TYPE_LABEL[p.employment_type]
       case 'department':
         return departments.find((d) => d.id === p.department_id)?.name.toLowerCase() ?? null
       case 'capacity':
@@ -385,11 +421,11 @@ function EmployeesCard() {
   })
 
   return (
-    <Section title="Employees" icon={<Users2 size={16} className="text-brand-600" />}>
+    <Section title={copy.title} icon={<Users2 size={16} className="text-brand-600" />}>
       {isLoading ? (
         <Spinner />
       ) : people.length === 0 ? (
-        <EmptyState title="No employees yet." />
+        <EmptyState title={copy.emptyTitle} />
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -399,8 +435,7 @@ function EmployeesCard() {
                 <SortableTh label="Title" sortKey="title" sort={sort} thClassName="py-2 pr-3" />
                 <SortableTh label="Email" sortKey="email" sort={sort} thClassName="py-2 pr-3" />
                 <SortableTh label="Role" sortKey="role" sort={sort} thClassName="py-2 pr-3" />
-                <SortableTh label="Type" sortKey="type" sort={sort} thClassName="py-2 pr-3" />
-                <SortableTh label="Department" sortKey="department" sort={sort} thClassName="py-2 pr-3" />
+                        <SortableTh label="Department" sortKey="department" sort={sort} thClassName="py-2 pr-3" />
                 <SortableTh label="Capacity" sortKey="capacity" sort={sort} thClassName="py-2 pr-3" />
                 <SortableTh label="Status" sortKey="status" sort={sort} thClassName="py-2 pr-3" />
               </tr>
@@ -418,7 +453,6 @@ function EmployeesCard() {
                     <td className="py-2 pr-3 text-ink-700">{p.title ?? '—'}</td>
                     <td className="py-2 pr-3 text-ink-500">{p.email}</td>
                     <td className="py-2 pr-3 text-ink-700">{ROLE_LABEL[p.role]}</td>
-                    <td className="py-2 pr-3 text-ink-700">{EMPLOYMENT_TYPE_LABEL[p.employment_type]}</td>
                     <td className="py-2 pr-3 text-ink-700">{dept?.name ?? 'No department'}</td>
                     <td className="py-2 pr-3 tabular-nums text-ink-700">{p.capacity_hours_per_week}h/wk</td>
                     <td className="py-2 pr-3">
@@ -449,19 +483,6 @@ function EmployeesCard() {
   )
 }
 
-function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
-  return (
-    <button
-      className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
-        active ? 'border-brand-600 text-brand-700' : 'border-transparent text-ink-500 hover:text-ink-700'
-      }`}
-      onClick={onClick}
-    >
-      {children}
-    </button>
-  )
-}
-
 function EmployeeModal({
   person,
   departments,
@@ -476,6 +497,7 @@ function EmployeeModal({
   const { profile: viewer } = useAuth()
   const update = useUpdateProfile()
   const updateRate = useUpdateCostRate()
+  const sendLink = useSendSignInLink()
   const { data: workstreamMembers } = useWorkstreamMembers()
   const addWorkstreamMember = useAddWorkstreamMember()
   const removeWorkstreamMember = useRemoveWorkstreamMember()
@@ -708,6 +730,31 @@ function EmployeeModal({
                 />
               </div>
             )}
+          </div>
+
+          {/* Sits on Details rather than Settings because it is about reaching
+              this person, not about their employment status -- and because the
+              person who needs it is usually mid-conversation with them. */}
+          <div className="rounded-xl border border-cream-200 bg-cream-50 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-ink-900">Account access</p>
+                <p className="mt-0.5 text-xs text-ink-500">
+                  {person.onboarding_completed_at
+                    ? 'Setup finished — they can sign in normally.'
+                    : person.onboarding_started_at
+                      ? 'Started setting up but has not finished.'
+                      : "Has not signed in yet. Invite links expire after a day, so this is usually why."}
+                </p>
+              </div>
+              <button
+                className="btn-ghost !py-1.5 !px-3 text-sm"
+                disabled={sendLink.isPending}
+                onClick={() => sendLink.mutate(person.email)}
+              >
+                <Mail size={14} /> Send a new sign-in link
+              </button>
+            </div>
           </div>
 
           <button

@@ -224,6 +224,30 @@ export function PageHeader({
   )
 }
 
+/** An underlined tab in a horizontal tab strip. Put these in a
+ *  `flex border-b border-cream-200` row; the -mb-px pulls the active underline
+ *  over the container's own border so the two read as one line. */
+export function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <button
+      className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
+        active ? 'border-brand-600 text-brand-700' : 'border-transparent text-ink-500 hover:text-ink-700'
+      }`}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  )
+}
+
 // --------------------------------------------------------------- sorting
 
 export type SortDir = 'asc' | 'desc'

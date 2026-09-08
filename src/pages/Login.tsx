@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
-import { Loader2, LogIn, Mail } from 'lucide-react'
+import { Clock, Loader2, LogIn, Mail } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Logo } from '@/components/Logo'
 
@@ -45,6 +45,10 @@ export function Login() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sent, setSent] = useState(false)
+  /** An expired or already-used email link, as opposed to a wrong password.
+   *  Worth separating because the fix is completely different -- there is
+   *  nothing to correct and nothing to retry, they just need a new link. */
+  const [linkExpired, setLinkExpired] = useState(false)
 
   // Google (or Supabase) can bounce back here with the failure in the URL --
   // e.g. an email outside the work domain, rejected by the
@@ -55,10 +59,21 @@ export function Login() {
       window.location.hash ? window.location.hash.slice(1) : window.location.search,
     )
     const description = params.get('error_description')
-    if (description) {
-      setError(description.replace(/\+/g, ' '))
-      window.history.replaceState(null, '', window.location.pathname)
+    if (!description) return
+
+    // The single most likely first experience of Kofa OS for a new hire who
+    // didn't open their invite the same day. Supabase reports it as
+    // error_code=otp_expired (older projects only set the description), and
+    // until now it surfaced as a bare red "Email link is invalid or has
+    // expired" next to a password field they have never had a password for.
+    const code = params.get('error_code') ?? ''
+    const text = description.replace(/\+/g, ' ')
+    if (code === 'otp_expired' || /invalid or has expired/i.test(text)) {
+      setLinkExpired(true)
+    } else {
+      setError(text)
     }
+    window.history.replaceState(null, '', window.location.pathname)
   }, [])
 
   if (session) return <Navigate to="/" replace />
@@ -114,6 +129,24 @@ export function Login() {
           <h2 className="text-xl font-semibold text-ink-900">Sign in</h2>
           <p className="mt-1 text-sm text-ink-500">Invite-only. Use your Kofa work email.</p>
 
+          {linkExpired && (
+            <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4">
+              <div className="flex items-start gap-3">
+                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-amber-100 text-amber-700">
+                  <Clock size={15} />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-amber-900">That link has expired</p>
+                  <p className="mt-1 text-sm text-amber-800/90">
+                    Invite and sign-in links work once, and only for a short while. Nothing is
+                    wrong with your account — enter your work email below and we'll send a fresh
+                    one. If you signed in with Google before, use the Google button instead.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           <form onSubmit={submit} className="mt-6 space-y-3">
             <div>
               <label className="label">Work email</label>
@@ -155,7 +188,7 @@ export function Login() {
               Sign in
             </button>
             <button type="button" className="btn-accent w-full" onClick={magicLink} disabled={busy}>
-              <Mail size={16} /> Email me a magic link
+              <Mail size={16} /> {linkExpired ? 'Send me a new link' : 'Email me a magic link'}
             </button>
           </form>
 

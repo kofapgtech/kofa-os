@@ -126,6 +126,16 @@ export interface Profile {
   title: string | null
   capacity_hours_per_week: number
   avatar_url: string | null
+  /** What they actually go by, captured during onboarding. Display falls back
+   *  to full_name when null. */
+  preferred_name: string | null
+  phone: string | null
+  /** IANA name, e.g. America/New_York. */
+  timezone: string | null
+  onboarding_started_at: string | null
+  /** Null means the setup banner still shows. Onboarding is never a hard gate,
+   *  so this is a prompt, not an access check. */
+  onboarding_completed_at: string | null
   is_active: boolean
   termination_date: string | null
   termination_reason: string | null
@@ -750,4 +760,123 @@ export interface OrgEmailDomain {
   domain: string
   org_id: string
   created_at: string
+}
+
+// ------------------------------------------------------------------ onboarding
+
+/** One unit of work asked of a new hire. The registry lives in
+ *  onboarding_settings.steps as JSON rather than in code, so an admin can turn
+ *  a step off, make it optional, or aim it at one employment type without a
+ *  deploy. `key` is matched against the hard-coded screens in the wizard — an
+ *  unknown key is ignored rather than rendered blank. */
+export interface OnboardingStep {
+  key: string
+  label: string
+  enabled: boolean
+  /** Required steps keep the setup banner alive until they are done.
+   *  Onboarding is never a hard gate on the app, so this means "we keep
+   *  asking", not "you cannot get in". */
+  required: boolean
+  /** The employee/contractor split, which is data rather than a code path. */
+  applies_to: EmploymentType[]
+}
+
+export interface OnboardingSettings {
+  org_id: string
+  enabled: boolean
+  welcome_title: string
+  welcome_body: string
+  welcome_video_url: string | null
+  steps: OnboardingStep[]
+  /** Days after the invite on which an incomplete person is reminded.
+   *  Empty disables reminders without disabling onboarding. */
+  reminder_days: number[]
+  notify_on_complete: boolean
+  updated_at: string
+  updated_by: string | null
+}
+
+/** 'file' = an uploaded PDF in the onboarding-docs bucket. 'text' = markdown
+ *  written and kept current in the app. Both exist because some of these
+ *  documents already live as PDFs and some are easier to edit in place. */
+export type OnboardingAgreementSource = 'text' | 'file'
+
+export interface OnboardingAgreement {
+  id: string
+  org_id: string
+  title: string
+  summary: string | null
+  source: OnboardingAgreementSource
+  body_md: string | null
+  file_path: string | null
+  file_name: string | null
+  /** Bumped whenever the wording changes. Signatures are recorded against a
+   *  version, so a revised document is genuinely re-signed rather than
+   *  inheriting the old consent. */
+  version: number
+  applies_to: EmploymentType[]
+  is_required: boolean
+  sort_order: number
+  is_active: boolean
+  /** AcroForm fields the filler must handle, detected when the PDF was
+   *  uploaded — writable fields plus signature boxes, which need stamping. 0
+   *  means read-and-sign only, and the wizard then skips loading the PDF
+   *  machinery entirely rather than paying for it on every agreement. */
+  form_field_count: number
+  created_at: string
+  updated_at: string
+  created_by: string | null
+}
+
+/** A /docs article a new hire must read. `doc_slug` points at a file in
+ *  src/docs/articles — deliberately not a foreign key, since the articles live
+ *  in the repo. A slug that no longer resolves is skipped. */
+export interface OnboardingReadingItem {
+  id: string
+  org_id: string
+  doc_slug: string
+  applies_to: EmploymentType[]
+  is_required: boolean
+  sort_order: number
+  created_at: string
+}
+
+/** Append-only. There is no update or delete policy on this table for anyone,
+ *  including admins — a signature an administrator could rewrite is worthless
+ *  as evidence. */
+export interface OnboardingSignature {
+  id: string
+  org_id: string
+  user_id: string
+  agreement_id: string
+  agreement_version: number
+  /** Denormalised so the record still says what was signed after the
+   *  agreement is renamed or removed. */
+  agreement_title: string
+  typed_name: string
+  signed_at: string
+  ip: string | null
+  user_agent: string | null
+  /** What they typed into the PDF's own form fields, keyed by AcroForm field
+   *  name. Stored as data as well as in the file so it can be queried and
+   *  exported without parsing a binary. Empty for a flat document. */
+  field_values: Record<string, string>
+  /** Their completed copy, under <org_id>/signed/<user_id>/ in the
+   *  onboarding-docs bucket. Null for a flat document, or if the upload failed
+   *  — field_values is still authoritative in that case. */
+  filled_file_path: string | null
+  /** False when the form could not be flattened, so the answers are live
+   *  widgets rather than page content. Weaker evidence; worth surfacing. */
+  filled_flattened: boolean | null
+}
+
+/** Written the instant a step finishes, which is what makes the flow
+ *  resumable. `step_key` is either a step key ('account') or a sub-item within
+ *  one ('reading:timesheet', 'agreement:<uuid>'). */
+export interface OnboardingProgressRow {
+  org_id: string
+  user_id: string
+  step_key: string
+  completed_at: string
+  data: Record<string, unknown>
 }

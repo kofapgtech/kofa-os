@@ -58,7 +58,12 @@ function SectionHeader({
  * the is_owner column can't be moved by a direct update at all, only through
  * transfer_workspace_ownership().
  */
-export function WorkspaceSettings() {
+/** `embedded` is set when this renders as a tab inside the Settings hub
+ *  (src/pages/Settings.tsx), which supplies the page title and the tab strip.
+ *  Only the chrome changes: the owner check, the save button and every section
+ *  below are identical either way, so there is one implementation of workspace
+ *  settings rather than two that can drift. */
+export function WorkspaceSettings({ embedded = false }: { embedded?: boolean } = {}) {
   const { isOwner, profile } = useAuth()
   const { data: workspace, isLoading } = useWorkspace()
   const { data: domains = [] } = useOrgEmailDomains()
@@ -138,17 +143,27 @@ export function WorkspaceSettings() {
   // the confirmation copy never overstates or understates the blast radius.
   const departingEmployees = allPeople.filter((p) => !(p.is_owner || p.role === 'admin'))
 
+  const saveButton = (
+    <button className="btn-primary" disabled={update.isPending} onClick={save}>
+      <Check size={16} /> Save changes
+    </button>
+  )
+
   return (
     <div className="max-w-3xl">
-      <PageHeader helpSlug="workspace-settings"
-        title="Workspace"
-        subtitle={`${workspace.name} · kofaos.app/w/${workspace.slug}`}
-        actions={
-          <button className="btn-primary" disabled={update.isPending} onClick={save}>
-            <Check size={16} /> Save changes
-          </button>
-        }
-      />
+      {embedded ? (
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-ink-500">{`${workspace.name} · kofaos.app/w/${workspace.slug}`}</p>
+          {saveButton}
+        </div>
+      ) : (
+        <PageHeader
+          helpSlug="workspace-settings"
+          title="Workspace"
+          subtitle={`${workspace.name} · kofaos.app/w/${workspace.slug}`}
+          actions={saveButton}
+        />
+      )}
 
       <div className="space-y-4">
         <section className="card space-y-5 p-5">

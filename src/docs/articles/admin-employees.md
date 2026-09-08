@@ -6,22 +6,23 @@ roles: admin
 summary: The roster — inviting people, roles, rates, workstreams and files.
 ---
 
-The roster: "Invite employees and manage the roster." Admins, executives and HR.
+The roster, split across two pages: **Admin → Employees** and **Admin → Contractors**. Admins, executives and HR reach both.
+
+The two work identically — same table, same invite form, same edit tabs — and this article covers both. The only difference is which half of the roster you are looking at: **Employees** lists everyone whose employment type is Employee, **Contractors** everyone whose type is Contractor. Nobody appears on both.
 
 ## The table
 
-**Name**, **Title**, **Email**, **Role**, **Type**, **Department**, **Capacity**, **Status**. Every column sorts. Status is **Active**, **Inactive** or **Terminated**, and inactive rows are dimmed.
+**Name**, **Title**, **Email**, **Role**, **Department**, **Capacity**, **Status**. Every column sorts. There is no Type column — the page you are on is the type. Status is **Active**, **Inactive** or **Terminated**, and inactive rows are dimmed.
 
 ![The employee roster](/docs/img/admin-employees-roster.png)
 
 ## Inviting someone
 
-**Invite employee** opens the form. **Full name** and **Work email** are the only required fields, but filling in the rest saves a second pass:
+**Invite employee** (or **Invite contractor**, on the Contractors page) opens the form. The employment type is set by the page you are on — there is no dropdown for it, so invite someone from the page they belong on. **Full name**, **Work email** and **Rate ($/h)** are required; filling in the rest saves a second pass:
 
 | Field | Why it matters |
 | --- | --- |
 | Role | Decides everything they can see — [Roles and what each can see](/docs/roles-and-access) |
-| Employment type | Employee or contractor. Contractors go through timesheet approval; employees do not |
 | Workstream | Tick every workstream they are staffed on and star one as **Primary**. The starred one becomes their Department; the rest staff them for hour allocation too. With none, they will not appear in hour-allocation pickers |
 | Title | Shows next to their name everywhere |
 | Capacity (h/wk) | Defaults to 40; drives utilization on the [Command centre](/docs/command-centre) |
@@ -36,6 +37,8 @@ The roster: "Invite employees and manage the roster." Admins, executives and HR.
 Click a row. Up to three tabs:
 
 **Details** — full name, title, role, employment type, workstreams, capacity, and **Rate ($/h)** for admins and HR. Email is never editable. **Save changes**.
+
+**Employment type** is how someone moves between the two pages. Switch it from Employee to Contractor and they leave the Employees roster and appear on Contractors on the next save — it also changes what they see: contractors go through timesheet approval and lose the Accounts page.
 
 **Workstream** works exactly as it does on the invite form: one field, a checkbox per workstream, and a star marking the primary. The starred workstream is their Department; every other ticked one staffs them for hour allocation on that workstream's tasks as well. Untick to unstaff. Nothing is written until **Save changes**.
 
