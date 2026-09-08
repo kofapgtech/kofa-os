@@ -27,3 +27,4 @@ dist-ssr
 # Supabase CLI local cache
 supabase/.temp/
 supabase/migrations/
+node_modules
